@@ -1,6 +1,7 @@
 """Scenario -> a verifiers taskset package + a vf-eval TOML. Pure file generation."""
 
 import json
+import re
 from pathlib import Path
 from string import Template
 
@@ -15,7 +16,7 @@ def module_name(scenario: Scenario) -> str:
 
 def _read_task(task_dir: Path) -> dict:
     files = {str(p.relative_to(task_dir)): p.read_text(encoding="utf-8")
-             for p in sorted(task_dir.rglob("*")) if p.is_file() and p.name != "prompt.md"}
+             for p in sorted(task_dir.rglob("*")) if p.is_file() and p != task_dir / "prompt.md"}
     return {"name": task_dir.name, "prompt": (task_dir / "prompt.md").read_text(encoding="utf-8"), "files": files}
 
 
@@ -39,6 +40,10 @@ def compile_scenario(scenario: Scenario, out_dir: Path, model: str, base_url: st
                      seed: int, episodes: int) -> tuple[Path, Path]:
     if scenario.tasks.assignment != "same":
         raise ValueError(f"tasks.assignment '{scenario.tasks.assignment}' is not supported in v0")
+    if not re.fullmatch(r"^[a-z0-9][a-z0-9_-]{0,63}$", scenario.name):
+        raise ValueError(f"invalid scenario name {scenario.name!r}")
+    if not re.fullmatch(r"^[A-Za-z0-9._-]{1,32}$", scenario.version):
+        raise ValueError(f"invalid scenario version {scenario.version!r}")
 
     module = module_name(scenario)
     pkg = out_dir / "package" / module
@@ -52,6 +57,8 @@ def compile_scenario(scenario: Scenario, out_dir: Path, model: str, base_url: st
     values = dict(
         SCENARIO=scenario.name, VERSION=scenario.version, N_AGENTS=scenario.agents.count,
         MAX_ROUNDS=scenario.limits.max_rounds, BOARD=repr(scenario.board.enabled),
+        SCENARIO_JSON=repr(json.dumps(scenario.name)),
+        VERSION_JSON=repr(json.dumps(scenario.version)),
         ROLE_JSON=repr(json.dumps(scenario.agents.role_prompt)),
         TEST_COMMAND_JSON=repr(json.dumps(scenario.checks.test_command)),
         TEST_FILES_JSON=repr(json.dumps(scenario.checks.test_files)),

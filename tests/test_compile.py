@@ -48,3 +48,10 @@ def test_round_robin_rejected(tmp_path):
     scn = scn.model_copy(update={"tasks": scn.tasks.model_copy(update={"assignment": "round_robin"})})
     with pytest.raises(ValueError, match="round_robin"):
         compile_scenario(scn, tmp_path / "out", "m", "u", 0, 1)
+
+
+def test_bad_name_rejected(tmp_path):
+    scn = scenario(tmp_path)
+    scn = scn.model_copy(update={"name": 'evil"; import os; x="'})
+    with pytest.raises(ValueError, match="invalid scenario name"):
+        compile_scenario(scn, tmp_path / "out", "m", "u", 0, 1)

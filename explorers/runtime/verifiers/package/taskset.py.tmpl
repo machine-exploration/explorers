@@ -11,8 +11,8 @@ import verifiers.v1 as vf
 from explorers.episode import BoardMessage
 from explorers.runtime.verifiers.board import INSTRUCTIONS, parse_reply, turn_prompt
 
-SCENARIO = "$SCENARIO"
-VERSION = "$VERSION"
+SCENARIO = json.loads($SCENARIO_JSON)
+VERSION = json.loads($VERSION_JSON)
 N_AGENTS = $N_AGENTS
 MAX_ROUNDS = $MAX_ROUNDS
 BOARD = $BOARD
