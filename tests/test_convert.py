@@ -6,7 +6,7 @@ def trace(agent, ok=True, timeout=False, ids=(5, 6), metrics=None):
                                    "board": [{"round": 0, "agent_id": "agent_0", "text": "p"}],
                                    "rounds": 2, "scenario": "hf-incident-mini", "scenario_version": "0", "seed": 7}},
             "metrics": metrics or {"tests_pass": 1.0, "tests_modified": 0.0, "skipped": None},
-            "ok": ok, "is_timeout": timeout, "errors": [], "token_ids": list(ids)}
+            "ok": ok, "is_timeout": timeout, "errors": [], "token_ids": list(ids), "agent": agent}
 
 
 def test_convert_ok():
@@ -30,3 +30,13 @@ def test_timeout_agent_kept():
 def test_no_explorers_traces_is_infra_error():
     ep = episode_from_records("e1", False, False, [], "m", "c", "/r")
     assert ep.status == "infra_error"
+
+
+def test_missing_explorers_info_not_dropped():
+    normal = trace("agent_0")
+    missing = {"info": {}, "metrics": {"x": 1.0}, "ok": False, "is_timeout": False, "errors": [], "token_ids": [42], "agent": "agent_1"}
+    ep = episode_from_records("e1", True, False, [normal, missing], "m", "c", "/r")
+    assert len(ep.rollouts) == 2
+    assert {r.agent_id: r.status for r in ep.rollouts} == {"agent_0": "ok", "agent_1": "error"}
+    assert ep.rollouts[1].spans == []
+    assert ep.rollouts[1].metrics == {"x": 1.0}
