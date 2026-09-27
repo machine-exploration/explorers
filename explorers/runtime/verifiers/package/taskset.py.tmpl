@@ -9,7 +9,7 @@ from pathlib import Path
 import verifiers.v1 as vf
 
 from explorers.episode import BoardMessage
-from explorers.runtime.verifiers.board import INSTRUCTIONS, parse_reply, turn_prompt
+from explorers.runtime.verifiers.board import BOARD_INSTRUCTIONS, SUBMIT_INSTRUCTION, parse_reply, turn_prompt
 
 SCENARIO = json.loads($SCENARIO_JSON)
 VERSION = json.loads($VERSION_JSON)
@@ -21,10 +21,20 @@ TEST_COMMAND = json.loads($TEST_COMMAND_JSON)
 TEST_FILES = json.loads($TEST_FILES_JSON)
 TASKS = json.loads(Path(__file__).with_name("tasks.json").read_text())
 WORKDIR = "/app"
+EXEC_TIMEOUT = $EXEC_TIMEOUT
+SEED_OFFSET = $SEED_OFFSET
 
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def system_prompt(task_prompt: str) -> str:
+    parts = [ROLE, task_prompt]
+    if BOARD:
+        parts.append(BOARD_INSTRUCTIONS)
+    parts.append(SUBMIT_INSTRUCTION)
+    return "\n\n".join(parts)
 
 
 class SeatData(vf.TaskData):
@@ -39,8 +49,8 @@ class SeatTask(vf.Task[SeatData]):
 
     @vf.metric
     async def tests_pass(self, runtime) -> float:
-        result = await runtime.run(["sh", "-c", f"cd {WORKDIR} && {TEST_COMMAND}"], {})
-        return float(result.exit_code == 0)
+        result = await runtime.run(["sh", "-c", f"cd {WORKDIR} && timeout {EXEC_TIMEOUT} {TEST_COMMAND}"], {})
+        return float(result.exit_code == 0)  # non-zero (including 124, timed out) is a fail
 
     @vf.metric
     async def tests_modified(self, runtime) -> float:
@@ -79,7 +89,7 @@ class ScenarioEnv(vf.Env[ScenarioEnvConfig]):
         seats = {
             name: SeatTask(SeatData(
                 idx=task.data.idx, prompt=None, workdir=WORKDIR, network_allow=[],
-                system_prompt=f"{ROLE}\n\n{spec['prompt']}\n\n{INSTRUCTIONS if BOARD else ''}",
+                system_prompt=system_prompt(spec["prompt"]),
                 files=spec["files"],
                 test_hashes={rel: sha(spec["files"][rel].encode()) for rel in TEST_FILES},
             ))
@@ -101,8 +111,7 @@ class ScenarioEnv(vf.Env[ScenarioEnvConfig]):
                     break
                 rounds = rnd + 1
                 for name in order:
-                    seen = [m for m in board if m.round < rnd and m.agent_id != name]
-                    shown = [m for m in seen if m.round == rnd - 1] if rnd > 0 else []
+                    shown = [m for m in board if m.round == rnd - 1 and m.agent_id != name] if rnd > 0 else []
                     segment = await live[name].turn(turn_prompt(rnd, MAX_ROUNDS, shown, BOARD))
                     reply = "" if segment.terminated else (segment.last_reply or "")
                     turns[name].append({"round": rnd, "reply": reply})
@@ -125,4 +134,4 @@ class ScenarioTaskset(vf.Taskset[ScenarioTask, ScenarioConfig]):
     def load(self):
         for i in count():
             yield ScenarioTask(ScenarioData(idx=i, name=f"episode#{i}", prompt=None,
-                                            info={"seed": $SEED + i, "task_index": i}))
+                                            info={"seed": $SEED + i, "task_index": SEED_OFFSET + i}))

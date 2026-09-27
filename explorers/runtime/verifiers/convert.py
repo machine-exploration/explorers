@@ -14,7 +14,8 @@ def _rollout_status(trace: dict) -> str:
 
 
 def episode_from_records(episode_id: str, ok: bool, is_timeout: bool, traces: list[dict],
-                         model: str, commit: str, run_dir: str) -> Episode:
+                         model: str, commit: str, run_dir: str, fallback_seed: int = 0,
+                         fallback_scenario: str = "", fallback_version: str = "") -> Episode:
     rollouts: list[Rollout] = []
     board: list[BoardMessage] = []
     meta: dict = {}
@@ -36,13 +37,16 @@ def episode_from_records(episode_id: str, ok: bool, is_timeout: bool, traces: li
             if not board:
                 board = [BoardMessage(**m) for m in info["board"]]
     status = "timeout" if is_timeout else ("ok" if ok and rollouts else "infra_error")
-    return Episode(id=episode_id, scenario=meta.get("scenario", ""), scenario_version=meta.get("scenario_version", ""),
-                   model=model, seed=int(meta.get("seed", 0)), status=status, rounds=int(meta.get("rounds", 0)),
+    return Episode(id=episode_id, scenario=meta.get("scenario", fallback_scenario),
+                   scenario_version=meta.get("scenario_version", fallback_version),
+                   model=model, seed=int(meta.get("seed", fallback_seed)), status=status,
+                   rounds=int(meta.get("rounds", 0)),
                    board=board, rollouts=sorted(rollouts, key=lambda r: r.agent_id),
                    source={"backend": "verifiers", "commit": commit, "run_dir": run_dir})
 
 
-def episodes_from_run(run_dir: Path, model: str, commit: str) -> list[Episode]:
+def episodes_from_run(run_dir: Path, model: str, commit: str,
+                      fallback_scenario: str = "", fallback_version: str = "") -> list[Episode]:
     from verifiers.v1.trace import WireTrace
     from verifiers.v1.utils.trace_store import read_episodes
 
@@ -55,5 +59,11 @@ def episodes_from_run(run_dir: Path, model: str, commit: str) -> list[Episode]:
                            "errors": [e.model_dump() for e in tr.errors],
                            "token_ids": branches[-1].token_ids if branches else [],
                            "agent": tr.agent.name})
-        out.append(episode_from_records(ep.id, ep.ok, ep.is_timeout, traces, model, commit, str(run_dir)))
+        # Falls back to the whole episode's own task data (`info={"seed": ...}`, set by
+        # ScenarioTaskset.load) when no trace carries `info["explorers"]` - e.g. every
+        # agent errored before the env could stamp its trace.
+        fallback_seed = int((getattr(ep.task.data, "info", None) or {}).get("seed", 0))
+        out.append(episode_from_records(ep.id, ep.ok, ep.is_timeout, traces, model, commit, str(run_dir),
+                                        fallback_seed=fallback_seed, fallback_scenario=fallback_scenario,
+                                        fallback_version=fallback_version))
     return out

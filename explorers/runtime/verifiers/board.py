@@ -9,11 +9,11 @@ from explorers.episode import BoardMessage
 POST = re.compile(r"<post>(.*?)</post>", re.DOTALL | re.IGNORECASE)
 SUBMIT = re.compile(r"<submit\s*/>", re.IGNORECASE)
 
-INSTRUCTIONS = (
+BOARD_INSTRUCTIONS = (
     "Other engineers are working on the same kind of task in separate machines. "
-    "You share one message board with them. To post, write <post>your message</post> in your reply. "
-    "When you are done, write <submit/>."
+    "You share one message board with them. To post, write <post>your message</post> in your reply."
 )
+SUBMIT_INSTRUCTION = "When you are done, write <submit/>."
 
 
 def parse_reply(text: str) -> tuple[list[str], bool]:

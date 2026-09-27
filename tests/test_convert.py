@@ -40,3 +40,11 @@ def test_missing_explorers_info_not_dropped():
     assert {r.agent_id: r.status for r in ep.rollouts} == {"agent_0": "ok", "agent_1": "error"}
     assert ep.rollouts[1].spans == []
     assert ep.rollouts[1].metrics == {"x": 1.0}
+
+
+def test_no_trace_has_explorers_info_uses_fallbacks():
+    missing_0 = {"info": {}, "metrics": {}, "ok": False, "is_timeout": False, "errors": [], "token_ids": [], "agent": "agent_0"}
+    missing_1 = {"info": {}, "metrics": {}, "ok": False, "is_timeout": False, "errors": [], "token_ids": [], "agent": "agent_1"}
+    ep = episode_from_records("e1", False, False, [missing_0, missing_1], "m", "c", "/r",
+                              fallback_seed=42, fallback_scenario="hf-incident-mini", fallback_version="0")
+    assert ep.seed == 42 and ep.scenario == "hf-incident-mini" and ep.scenario_version == "0"
