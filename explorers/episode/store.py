@@ -1,5 +1,6 @@
 """Append-only JSONL store: one line per episode in `<dir>/episodes.jsonl`."""
 
+import warnings
 from pathlib import Path
 
 from explorers.episode.model import Episode
@@ -14,11 +15,23 @@ def write_episode(directory: Path, episode: Episode) -> None:
 
 
 def read_episodes(directory: Path) -> list[Episode]:
+    """Parse every line as an Episode. A bad LAST line is treated as a crash mid-write:
+    it is skipped with a warning. A bad line anywhere else still raises."""
     path = directory / FILE
     if not path.exists():
         return []
-    with path.open(encoding="utf-8") as f:
-        return [Episode.model_validate_json(line) for line in f if line.strip()]
+    lines = [line for line in path.read_text(encoding="utf-8").split("\n") if line.strip()]
+    last = len(lines) - 1
+    episodes: list[Episode] = []
+    for i, line in enumerate(lines):
+        try:
+            episodes.append(Episode.model_validate_json(line))
+        except Exception as exc:
+            if i == last:
+                warnings.warn(f"skipping truncated last line in {path}: {exc}")
+                break
+            raise
+    return episodes
 
 
 def episode_ids(directory: Path) -> set[str]:
