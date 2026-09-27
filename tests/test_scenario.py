@@ -14,8 +14,13 @@ checks: {test_command: "python -m pytest -q tests", test_files: ["tests/test_sol
 """
 
 
-def write(tmp_path, text):
-    (tmp_path / "tasks" / "t1").mkdir(parents=True)
+def write(tmp_path, text, complete_task=True):
+    t1 = tmp_path / "tasks" / "t1"
+    t1.mkdir(parents=True)
+    if complete_task:
+        (t1 / "prompt.md").write_text("Make the tests pass.")
+        (t1 / "src").mkdir()
+        (t1 / "tests").mkdir()
     p = tmp_path / "scenario.yaml"
     p.write_text(text)
     return p
@@ -41,3 +46,24 @@ def test_test_files_required(tmp_path):
 def test_unknown_field_rejected(tmp_path):
     with pytest.raises(ValidationError):
         load_scenario(write(tmp_path, VALID + "extra: 1\n"))
+
+
+def test_root_key_rejected(tmp_path):
+    with pytest.raises(ValueError, match="root"):
+        load_scenario(write(tmp_path, VALID + "root: /etc\n"))
+
+
+def test_absolute_directory_rejected(tmp_path):
+    with pytest.raises(ValidationError):
+        load_scenario(write(tmp_path, VALID.replace("directory: tasks", f"directory: {tmp_path / 'tasks'}")))
+
+
+def test_dotdot_directory_rejected(tmp_path):
+    with pytest.raises(ValidationError):
+        load_scenario(write(tmp_path, VALID.replace("directory: tasks", "directory: ../tasks")))
+
+
+def test_task_dir_missing_prompt_md_rejected(tmp_path):
+    s = load_scenario(write(tmp_path, VALID, complete_task=False))
+    with pytest.raises(ValueError, match="prompt.md"):
+        s.task_dirs()

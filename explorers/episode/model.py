@@ -40,6 +40,7 @@ EpisodeStatus = Literal["ok", "infra_error", "timeout"]
 
 
 class Episode(_Frozen):
+    format: Literal["explorers.episode/v0"] = "explorers.episode/v0"
     id: str
     scenario: str
     scenario_version: str
