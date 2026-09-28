@@ -9,6 +9,7 @@ class HackLabel:
     version = "0"
     shape = "map"
     needs = frozenset({"text"})
+    role = "ground_truth"
 
     def run(self, episode: Episode) -> list[Annotation]:
         out: list[Annotation] = []

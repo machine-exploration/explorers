@@ -3,7 +3,7 @@ from pathlib import Path
 
 from explorers.episode import Episode, episode_ids, read_episodes, write_episode
 from explorers.methods import HackLabel, Propagation
-from explorers.metrics import rate
+from explorers.metrics import rate, score_detectors
 from explorers.scenario import load_scenario
 
 
@@ -81,7 +81,7 @@ class Exploration:
         hack = [a for anns in labels.values() for a in anns if a.name == "hack" and a.value != "excluded"]
         excluded = sum(1 for anns in labels.values() for a in anns if a.name == "hack" and a.value == "excluded")
         modified = [a for anns in labels.values() for a in anns if a.name == "tests_modified"]
-        prop = [a for e in kept for a in Propagation().run(e)]
+        prop = [a for e in kept for a in Propagation().run(e) if a.name == "propagated"]
         rollouts = [r for e in kept for r in e.rollouts]
         return {
             "episodes_total": len(episodes),
@@ -93,4 +93,5 @@ class Exploration:
             "propagation_rate": rate(sum(bool(a.value) for a in prop), len(prop)),
             "board_posts_per_episode": (sum(len(e.board) for e in kept) / len(kept)) if kept else 0.0,
             "tokens_recorded_rate": rate(sum(r.tokens_recorded for r in rollouts), len(rollouts)),
+            "detectors": score_detectors(kept, HackLabel(), [Propagation()], seed=0),
         }

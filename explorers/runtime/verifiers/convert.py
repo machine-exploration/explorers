@@ -30,7 +30,8 @@ def episode_from_records(episode_id: str, ok: bool, is_timeout: bool, traces: li
         else:
             meta = info
             agent = info["agent_id"]
-            spans = [Span(id=f"{episode_id}:{agent}:{i}", kind="turn", agent_id=agent, round=turn["round"], text=turn["reply"])
+            spans = [Span(id=f"{episode_id}:{agent}:{i}", kind="turn", agent_id=agent, round=turn["round"],
+                          text=turn["reply"], token_range=tuple(r) if (r := turn.get("token_range")) else None)
                      for i, turn in enumerate(info["turns"])]
             rollouts.append(Rollout(agent_id=agent, status=_rollout_status(t), token_ids=ids,
                                     tokens_recorded=bool(ids), spans=spans, metrics=metrics))

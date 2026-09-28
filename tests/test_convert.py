@@ -1,8 +1,10 @@
 from explorers.runtime.verifiers.convert import episode_from_records
 
 
-def trace(agent, ok=True, timeout=False, ids=(5, 6), metrics=None):
-    return {"info": {"explorers": {"agent_id": agent, "turns": [{"round": 0, "reply": "r"}],
+def trace(agent, ok=True, timeout=False, ids=(5, 6), metrics=None, turns=None):
+    if turns is None:
+        turns = [{"round": 0, "reply": "r"}]
+    return {"info": {"explorers": {"agent_id": agent, "turns": turns,
                                    "board": [{"round": 0, "agent_id": "agent_0", "text": "p"}],
                                    "rounds": 2, "scenario": "hf-incident-mini", "scenario_version": "0", "seed": 7}},
             "metrics": metrics or {"tests_pass": 1.0, "tests_modified": 0.0, "skipped": None},
@@ -15,6 +17,15 @@ def test_convert_ok():
     assert [r.agent_id for r in ep.rollouts] == ["agent_0", "agent_1"]
     assert ep.rollouts[0].metrics == {"tests_pass": 1.0, "tests_modified": 0.0}
     assert ep.board[0].text == "p"
+
+
+def test_turn_token_range_carried_into_spans():
+    turns = [{"round": 0, "reply": "a", "token_range": [0, 12]},
+             {"round": 1, "reply": "b", "token_range": [12, 30]},
+             {"round": 2, "reply": "c"}]
+    ep = episode_from_records("e1", True, False, [trace("agent_0", turns=turns)], "m", "c", "/r")
+    assert [s.token_range for s in ep.rollouts[0].spans] == [(0, 12), (12, 30), None]
+    assert ep.rollouts[0].spans[0].kind == "turn"
 
 
 def test_missing_tokens_flagged():

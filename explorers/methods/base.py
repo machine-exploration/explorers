@@ -23,5 +23,8 @@ class Method(Protocol):
     version: str
     shape: Literal["map", "reduce"]
     needs: frozenset[str]
+    role: Literal["ground_truth", "detector"]
+    """'ground_truth' derives labels from instrumentation (test results); a 'detector'
+    scores behaviour from the episode itself and is what `score_detectors` ranks."""
 
     def run(self, episode: Episode) -> list[Annotation]: ...

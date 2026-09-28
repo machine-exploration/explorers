@@ -16,6 +16,10 @@ class Span(_Frozen):
     round: int
     text: str
     source_agent: str | None = None
+    token_range: tuple[int, int] | None = None
+    """[start, end) into the owning rollout's `token_ids`, covering the tokens the backend
+    appended during this span (fed-in prompt and sampled output). `None` when the backend
+    did not record token ids or rewrote history mid-rollout (non-append-only trace)."""
 
 
 class BoardMessage(_Frozen):

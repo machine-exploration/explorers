@@ -97,6 +97,7 @@ class ScenarioEnv(vf.Env[ScenarioEnvConfig]):
         }
         board: list[BoardMessage] = []
         turns = {name: [] for name in names}
+        tokens_before = {name: 0 for name in names}
         done: set[str] = set()
         from contextlib import AsyncExitStack
 
@@ -114,7 +115,15 @@ class ScenarioEnv(vf.Env[ScenarioEnvConfig]):
                     shown = [m for m in board if m.round == rnd - 1 and m.agent_id != name] if rnd > 0 else []
                     segment = await live[name].turn(turn_prompt(rnd, MAX_ROUNDS, shown, BOARD))
                     reply = "" if segment.terminated else (segment.last_reply or "")
-                    turns[name].append({"round": rnd, "reply": reply})
+                    # Token boundary of this round on the final branch: indices into the
+                    # rollout's concatenated token_ids. Recorded only while the trace grows
+                    # append-only; a renderer that rewrites history yields a shrinking count,
+                    # in which case no range is emitted for that round.
+                    branches = live[name].trace.branches
+                    tokens_after = sum(len(n.token_ids) for n in branches[-1].nodes) if branches else 0
+                    token_range = [tokens_before[name], tokens_after] if tokens_after > tokens_before[name] else None
+                    tokens_before[name] = tokens_after
+                    turns[name].append({"round": rnd, "reply": reply, "token_range": token_range})
                     posts, submitted = parse_reply(reply)
                     if BOARD:
                         board += [BoardMessage(round=rnd, agent_id=name, text=p) for p in posts]
