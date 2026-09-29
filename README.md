@@ -10,35 +10,39 @@
 
 ## Layout
 
-`explorers` is the open-source interface of Machine Exploration: read, write and trace the streams of computation inside a model, and describe experiments as studies that run the same way on any backend.
+`explorers` is the open-source interface of Machine Exploration: read, write and trace the streams of computation inside a model, and describe experiments as studies that run the same way on any backend. One repository, one `uv` workspace, three packages that share the `explorers` namespace:
 
-| Part | What it does | Where it is today |
+| Package | Import | What it holds |
 |---|---|---|
-| `explorers.core` | Examples, model states, observables, the engine (one forward pass per state), the content-addressed store, analyses | [mechanics](https://github.com/machine-exploration/mechanics) `packages/core` |
-| Streams and studies | `read` / `write` / `trace` on named streams; `Study` over models × checkpoints × examples | planned (roadmap E1, E2) |
-| Backends | Hugging Face / PyTorch first; then NNsight or TransformerLens | planned (E3) |
-| Methods | probes, lenses (the Jacobian lens exists), patching, attribution, sparse autoencoders | partly in [mechanics](https://github.com/machine-exploration/mechanics) `packages/learning` |
-| `explorers.populations` | Scenarios, the multi-agent runtime, episodes, labels, detectors | **this repository**, as the prototype package `explorers` |
+| `packages/core` | `explorers.core` | Examples identified by content, model states along training, observables that declare what they read, the engine (one forward pass per state; gradient reads for the Jacobian lens), the content-addressed store, analyses |
+| `packages/learning` | `explorers.learning` | Pythia checkpoints, toy tasks with known answers, probes, the probe sweep |
+| `packages/populations` | `explorers.populations` | The scenario format, the multi-agent runtime (through the pinned [verifiers](https://github.com/machine-exploration/verifiers) fork), episodes, labels, detectors |
 
-The next step ([roadmap step 0](https://github.com/machine-exploration/public/blob/main/ROADMAP.md#step-0--one-library--next)) moves all library code into this repository. Until then, do not install this repository next to `mechanics`: its `explorers/__init__.py` hides `explorers.core`.
+Planned (roadmap [E1–E3](https://github.com/machine-exploration/public/blob/main/ROADMAP.md#phase-1--the-primitive)): named streams with `read` / `write` / `trace`, `Study` over models × checkpoints × examples, and backends beyond Hugging Face / PyTorch. The Runtime that executes studies at scale will be open source too.
 
-## What is here today
+Design notes: [docs/design.md](docs/design.md) (core primitives), [docs/jlens.md](docs/jlens.md) (the Jacobian lens), [docs/pythia.md](docs/pythia.md) (checkpoints and hidden states), [docs/desk-spikes-2026-09-27.md](docs/desk-spikes-2026-09-27.md) (reading activations next to a trainer).
 
-The agent-side prototype (`explorers.populations` after step 0):
+## Example: when are quanta learned?
 
-- `explorers.scenario`: scenario format v0 with fail-closed validation.
-- `explorers.episode`: the immutable episode model and a JSONL store.
-- `explorers.methods`: the `Method` / `Annotation` interface, with `hack_label` and `propagation`.
-- `explorers.runtime.verifiers`: compiling a scenario for, and converting traces from, the [verifiers](https://github.com/PrimeIntellect-ai/verifiers) runtime (through the pinned fork [machine-exploration/verifiers](https://github.com/machine-exploration/verifiers)).
-- `explorers.exploration` and `explorers.metrics`: the study unit, its report, and Wilson rates.
+```python
+from explorers.core import analysis, observe
+from explorers.core.engine import over
+from explorers.learning import toy
 
-The first scenario is the Hugging Face incident in miniature: agents on impossible tasks, a shared message board, a sealed sandbox. Because the tasks are impossible, any passing solution is a hack, and a hack that spreads through the board is coordination. The first question: **does anything inside the models signal the coordination before it shows in behaviour, better than text monitors at the same false-positive rate?**
+task = toy.MultitaskLookup(n_tasks=16, n_symbols=16, alpha=1.3)   # tasks with Zipf frequencies
+run = toy.train(task, steps=1500, every=50)                       # a few minutes on a CPU
+ds = over(run, [observe.example_loss, observe.stable_rank, observe.update_norm], task.examples())
+on = analysis.onsets(ds.example_loss)            # when, and how suddenly, each example is learned
+analysis.spearman(ds.task_frequency, on.onset)   # frequent tasks are learned first: negative
+```
+
+Research that uses the library (studies, datasets, papers) lives in [mechanics](https://github.com/machine-exploration/mechanics).
 
 ## Development
 
 ```bash
-uv sync --extra dev
-uv run pytest            # GPU tests are skipped by default (marker: gpu)
+uv sync
+uv run pytest            # tiny models on a CPU, no downloads; GPU tests are skipped (marker: gpu)
 ```
 
 ## Rules for scenarios

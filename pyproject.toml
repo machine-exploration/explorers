@@ -1,30 +1,21 @@
-[project]
-name = "machine-explorers"
-version = "0.0.1"
-description = "White-box oversight for agent populations, and an open stack for the science of deep learning."
-requires-python = ">=3.11"
-dependencies = [
-  "pydantic>=2.7",
-  "pyyaml>=6",
+# Workspace root: one repository, several packages that depend only on explorers-core.
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "explorers-core[torch]",
+  "explorers-learning",
+  "explorers-populations",
 ]
 
-[project.optional-dependencies]
-verifiers = [
-  "verifiers @ git+https://github.com/machine-exploration/verifiers@e66ec52966327e79011f4c3bb34a0f9817ce32b8",
-]
-dev = ["pytest>=8"]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["explorers"]
-
-[tool.hatch.metadata]
-allow-direct-references = true
+[tool.uv.sources]
+explorers-core = { workspace = true }
+explorers-learning = { workspace = true }
+explorers-populations = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["packages/core/tests", "packages/learning/tests", "packages/populations/tests", "tests"]
 markers = ["gpu: needs the 4070 machine and a running vLLM server"]
-addopts = "-m 'not gpu'"
+addopts = "-m 'not gpu' --import-mode=importlib"

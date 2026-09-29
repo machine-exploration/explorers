@@ -4,14 +4,14 @@ This repo is the `explorers` library, the open stack for Machine Exploration's m
 
 The org vision and roadmap live in [machine-exploration/public](https://github.com/machine-exploration/public) (README.md, ROADMAP.md). Update them there, not here. Thesis: a neural network is a learned computation over internal streams of state; Machine Exploration builds the instrumentation to read, write and trace them. One company, three programs: Explorers (the open-source interface), the Machine Exploration Runtime (executes studies at scale), Mechanics (the research program on how training creates computation). The org's repositories:
 
-- `explorers` (this repo): the open-source library. Today it holds the agent-side prototype (scenario format, multi-agent runtime, episodes, labels, detectors); after roadmap step 0 it holds all library code (`core`, `learning`, `populations`, streams, studies, backends, methods).
-- `mechanics`: today it holds the library core (`explorers-core`) and `explorers-learning`; after step 0 it becomes the research program (experiments, datasets, papers) and depends on `explorers`. Until then, this repo's `explorers/__init__.py` hides the `explorers.core` namespace, so do not install both in one environment.
+- `explorers` (this repo): the open-source library, one `uv` workspace: `packages/core` (`explorers.core`), `packages/learning` (`explorers.learning`), `packages/populations` (`explorers.populations`). No package may put an `__init__.py` directly in `explorers/`: it is a namespace shared by all packages. Packages depend only on `explorers-core`, never on each other.
+- `mechanics`: the research program (experiments, datasets, papers). It depends on `explorers` and holds no library code.
 - `public`: vision, roadmap, and later research notes and results.
 - `verifiers`, `vllm`: pinned forks of upstream projects. No local changes.
 
 Library rules: every study must give the same result on every supported backend within a stated tolerance; speed claims are measured against existing tools (NNsight, TransformerLens) on the same study. TransformerLens and NNsight may be backends, behind an optional extra, imported only in their backend module.
 
-The public README of this repo is [README.md](README.md). The detailed internal README (founder plan) is `private/README.md`, the first use case is `private/first-use-case.md`, and the chronology is `private/LOG.md`. All are local only, ignored by git, never published. Keep strategy and plans (runway, funding, competitors, decision points, timelines) there, not in tracked files. Ask the founder before making any new file public.
+The public README of this repo is [README.md](README.md). Run the tests with `uv run pytest` from the root. The detailed internal README (founder plan) is `private/README.md`, the first use case is `private/first-use-case.md`, and the chronology is `private/LOG.md`. All are local only, ignored by git, never published. Keep strategy and plans (runway, funding, competitors, decision points, timelines) there, not in tracked files. Ask the founder before making any new file public.
 
 ## Log every session
 
@@ -38,7 +38,7 @@ Commit and push directly to `main`. Do not open feature branches or pull request
 
 ## Backends and reference frameworks
 
-[verifiers](https://github.com/PrimeIntellect-ai/verifiers) is the runtime backend for scenarios. It is an optional extra (`verifiers`), installed from the pinned fork `machine-exploration/verifiers`, and imported lazily and only in `explorers.runtime.verifiers`. Do not import it anywhere else, and do not vendor its code.
+[verifiers](https://github.com/PrimeIntellect-ai/verifiers) is the runtime backend for scenarios. It is an optional extra of `explorers-populations` (`verifiers`), installed from the pinned fork `machine-exploration/verifiers`, and imported lazily and only in `explorers.populations.runtime.verifiers`. Do not import it anywhere else, and do not vendor its code.
 
 Inspect, prime-rl, devinterp, WeightWatcher and mup are design references, not dependencies.
 
