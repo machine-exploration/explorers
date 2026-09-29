@@ -1,15 +1,30 @@
 # explorers
 
 > **Toward a science of deep learning.**
-> Machine Exploration studies how intelligence arises in deep learning systems: how training builds the mechanisms a model computes with, and how to read those mechanisms once they exist. We publish the research and the open stack it runs on. `explorers` is where the stack starts.
+> Machine Exploration studies how intelligence arises in deep learning systems: how training builds the mechanisms a model computes with, and how to read those mechanisms once they exist. We start where reading models matters today: overseeing agent populations with white-box methods. We publish the research and the open stack it runs on. `explorers` is where the stack starts.
 
-**Status: pre-alpha.** Nothing is released yet. The mission changed on 2026-09-29; the code in this repository so far covers the application to agent oversight (see [What is here today](#what-is-here-today)). This README describes what we are building and in what order. Names and API are illustrative and will change.
+**Status: pre-alpha.** Nothing is released yet. The mission changed on 2026-09-29; the code in this repository so far covers the first horizon, agent oversight (see [What is here today](#what-is-here-today)). This README describes what we are building and in what order. Names and API are illustrative and will change.
 
 PyPI: `machine-explorers` (planned) · `import explorers`
 
 ---
 
-## Why
+## Two horizons
+
+- **Now: oversight of agent populations.** Agents run in populations that share tools, caches and channels, and they fail together. We build reproducible multi-agent scenarios and white-box monitors that read the models, not only their transcripts. This is where a result is useful soonest, and the code here today does it.
+- **Long term: a science of deep learning.** How training builds the mechanisms a model computes with, studied at the join of learning mechanics and mechanistic interpretability.
+
+The two feed each other. Oversight gives the science its most pressing question: when can a monitor that reads activations be trusted? The science answers it: when the feature the monitor reads forms in training, whether it causes the behaviour, whether it survives further training. Both run on one stack, with one `Method` interface and one annotation schema.
+
+## Now: agent oversight
+
+Agents now run as populations that share tools, caches and channels, and their failures can be collective: in July 2026 about 1,200 agents in an internal OpenAI evaluation found a shared cache, turned it into a message board and helped each other cheat ([METR](https://metr.org/blog/2026-08-26-openai-hugging-face-incident-investigation/), [Redwood Research](https://www.redwoodresearch.org/research/hugging-face-incident)). Transcripts can be spoofed and logs rewritten, so oversight has to read the models, not only what they write.
+
+White-box monitors (probes and other readings of activations) already catch reward hacking in open models ([Goodfire](https://arxiv.org/abs/2609.19101)). The science decides whether to trust them: when the feature a probe reads forms in training, whether it is causal, whether it survives further training or is obfuscated under pressure. Agent scenarios are where the stack's methods are tested on the behaviour that matters, against text monitors at the same false-positive rate.
+
+**First scenario: the Hugging Face incident in miniature.** A handful of agents on impossible tasks, a shared message board, a sealed sandbox. Because the tasks are impossible, any passing solution is a hack, and a hack that spreads through the board is coordination. The labels come for free. The first question: **does anything inside the models signal the coordination before it shows in behaviour?** Every internal method is compared with a chain-of-thought monitor and an LLM judge at the same false-positive rate, and the result is published either way.
+
+## Long term: a science of deep learning
 
 Deep learning works far better than we can explain. We can train a model that writes code, but we cannot say which computation it performs, when in training that computation appeared, or why gradient descent found it rather than another one that fits the data as well. Engineering has outrun science.
 
@@ -29,7 +44,7 @@ The bridges that exist are few, small, and among the clearest results in the fie
 
 > Our bet: the science of deep learning is made at the join. Measure mechanisms across training time, and explain their formation with dynamics.
 
-## Research program
+### Research program
 
 The questions, in the order we take them:
 
@@ -41,34 +56,30 @@ The questions, in the order we take them:
 
 The method: start with **model organisms**, small tasks where the mechanism is known or can be found (modular arithmetic, sparse parity, in-context learning, toy superposition). Validate every measurement there against ground truth. Then carry it to open models where the answer is not known.
 
-## Application: agent oversight
-
-We expect the science to pay off first in oversight. Agents now run as populations that share tools, caches and channels, and their failures can be collective: in July 2026 about 1,200 agents in an internal OpenAI evaluation found a shared cache, turned it into a message board and helped each other cheat ([METR](https://metr.org/blog/2026-08-26-openai-hugging-face-incident-investigation/), [Redwood Research](https://www.redwoodresearch.org/research/hugging-face-incident)). Transcripts can be spoofed and logs rewritten, so oversight has to read the models, not only what they write.
-
-White-box monitors (probes and other readings of activations) already catch reward hacking in open models ([Goodfire](https://arxiv.org/abs/2609.19101)). The science decides whether to trust them: when the feature a probe reads forms in training, whether it is causal, whether it survives further training or is obfuscated under pressure. Agent scenarios are where the stack's methods are tested on the behaviour that matters, against text monitors at the same false-positive rate.
-
 ## The stack
 
 Package names are working names.
 
 | Part | Object | What it does |
 |---|---|---|
-| **`explorers`** (core) | formats, storage, studies | The run format, the annotation schema, the `Exploration` study unit, content-addressed caching. |
+| **`explorers`** (core) | formats, storage, studies | The episode and run formats, the annotation schema, the `Exploration` study unit, content-addressed caching. |
+| **`agents`** (today `explorers.scenario`, `episode`, `runtime`) | agent populations | The scenario format, the multi-agent runtime and its episodes. Oversight methods run on these episodes. |
 | **`mechanics`** | training over time | Reproducible, instrumented training runs with dense (log-spaced) checkpoints. Measurements of dynamics: loss decompositions, weight and gradient statistics, curvature (Hessian spectrum), local learning coefficient, effective rank. |
 | **`interp`** (working name) | one checkpoint, read from inside | Reading activations at named sites, linear probes, dictionaries (sparse autoencoders), attribution, activation patching and ablation. |
 
-The two measurement libraries share one interface, so a dynamics measure and a mechanism measure run on the same checkpoints and land in the same table, indexed by training step.
+All methods share one interface. A probe from `interp` runs on agent episodes for oversight and on training checkpoints for the science; a dynamics measure and a mechanism measure run on the same checkpoints and land in the same table, indexed by training step.
 
 ## Core abstraction
 
 The goal is an abstraction where adding a method, a model organism, or compute never touches the core. It carries over from the agent-oversight code: immutable records, pure versioned methods, one annotation schema.
 
-- **`Run`: immutable data.** Config, seed, data order, and checkpoints at chosen steps, with optimizer state. Nothing edits a run; `branch` forks a new one from any checkpoint with one change (data, learning rate, seed). That is the intervention experiment for dynamics.
-- **`Method`: pure, versioned functions.** `method(inputs, needs) -> annotations`. Inputs are checkpoints or other methods' annotations, so methods compose.
-- **Declared needs.** A method says what it needs (`weights`, `read(sites)` for activations, `grad`, `hvp` for curvature, `intervene`, `branch`) and never calls the model itself. The runtime fuses every read on a checkpoint into one pass, so ten methods cost about as much as one.
-- **Two shapes.** `map` runs per checkpoint, independently, and parallelises without limit. `reduce` runs across checkpoints, seeds or runs through their annotations: curves, change-point detection, universality across seeds.
-- **`Annotation`: one shared schema.** Run, step, site, type (score, vector, label, text), value, method version, seed. Stored in columns and cached by content, so adding a method recomputes nothing.
-- **`Exploration`: a study.** Runs × checkpoints × methods → annotations → results over training time. The unit you rerun, share and compare.
+- **`Episode`: immutable data for oversight.** Spans (agent, turn, tool call, message, token range) for the agents that ran together. `branch` forks a new episode from any span.
+- **`Run`: immutable data for the science.** Config, seed, data order, and checkpoints at chosen steps, with optimizer state. Nothing edits a run; `branch` forks a new one from any checkpoint with one change (data, learning rate, seed). That is the intervention experiment for dynamics.
+- **`Method`: pure, versioned functions.** `method(inputs, needs) -> annotations`. Inputs are episode spans, run checkpoints, or other methods' annotations, so methods compose.
+- **Declared needs.** A method says what it needs (`weights`, `read(sites)` for activations, `grad`, `hvp` for curvature, `intervene`, `branch`) and never calls the model itself. The runtime fuses every read on a rollout or a checkpoint into one pass, so ten methods cost about as much as one.
+- **Two shapes.** `map` runs per rollout or per checkpoint, independently, and parallelises without limit. `reduce` runs over many of them through their annotations: fleet views and calibration for oversight; curves, change-point detection and universality across seeds for the science.
+- **`Annotation`: one shared schema.** Target (episode span, or run and step), site, type (score, vector, label, text), value, method version, seed. Stored in columns and cached by content, so adding a method recomputes nothing.
+- **`Exploration`: a study.** Scenarios or runs × models × methods → annotations → metrics against labels, or results over training time. The unit you rerun, share and compare.
 
 ### Illustrative API
 
@@ -93,7 +104,7 @@ exp = ex.Exploration(
 results = exp.run()   # checkpoints -> annotations -> curves over training time
 ```
 
-## First study: grokking on one timeline
+## First science study: grokking on one timeline
 
 Reproduce grokking of modular addition end to end, with dense checkpoints, and put every measurement on the same time axis: train and test loss, weight norm, curvature, local learning coefficient, a linear probe, and the Fourier circuit's own progress measures.
 
@@ -112,7 +123,7 @@ The circuit is known, so this is ground truth for the stack. The first question:
 
 ## What is here today
 
-The current code is the start of the agent-oversight application: reproducible multi-agent scenarios where agents can hack and coordinate, with labels that come for free.
+The current code is the first horizon, agent oversight: reproducible multi-agent scenarios where agents can hack and coordinate, with labels that come for free.
 
 - `explorers.scenario`: scenario format v0 with fail-closed validation.
 - `explorers.episode`: the immutable episode model and a JSONL store.
@@ -120,17 +131,16 @@ The current code is the start of the agent-oversight application: reproducible m
 - `explorers.runtime.verifiers`: compiling a scenario for, and converting traces from, the [verifiers](https://github.com/PrimeIntellect-ai/verifiers) runtime.
 - `explorers.exploration` and `explorers.metrics`: the study unit and Wilson rates.
 
-The first scenario is the Hugging Face incident in miniature: agents on impossible tasks, a shared board, a sealed sandbox. Because the tasks are impossible, any passing solution is a hack, and a hack that spreads through the board is coordination.
-
 The code's core ideas (immutable records, pure versioned methods, one annotation schema) are the ones the new stack generalises from episodes to training runs.
 
 ## Roadmap
 
-1. **Grokking on one timeline**, hand-rolled, to find out which measurements matter.
-2. **v0.1:** the run format, the `Method` interface over checkpoints, and two methods of different kinds (a dynamics measure and a mechanism measure) running on the same run through one interface.
-3. **Induction heads** in small transformers, then **open model suites** with public checkpoints.
-4. **Back to agents:** white-box monitors built and validated with the stack, run on the agent scenarios. First question: does anything inside the models signal coordination before it shows in behaviour?
-5. **A shared hub** for runs, measurements, scenarios and results.
+1. **The first scenario**, hand-rolled, to measure whether agents hack and coordinate.
+2. **v0.1:** the scenario format, the runtime, the first scenario, and two methods of different kinds (a judge on text and a probe on activations) running on the same episodes through one interface.
+3. **Grokking on one timeline:** the first science study, on the same `Method` interface extended to training checkpoints.
+4. **Where monitors come from:** follow the features that oversight probes read back through training, on model organisms first, then open model suites with public checkpoints (Pythia, OLMo).
+5. **A second scenario family** (virtual marketplaces) and larger open-weight models.
+6. **A shared hub** for scenarios, runs, methods and results.
 
 ## Open questions
 
@@ -142,7 +152,7 @@ The code's core ideas (immutable records, pure versioned methods, one annotation
 
 ## Contributing
 
-Pre-alpha, so the most useful contributions right now are conversations. If you study training dynamics, the theory of deep learning, or mechanistic interpretability, and want a shared, reproducible substrate for it, open an issue.
+Pre-alpha, so the most useful contributions right now are conversations. If you train or evaluate agents in populations, build methods to read models, or study training dynamics and the theory of deep learning, and want a shared, reproducible substrate for it, open an issue.
 
 Contributors and coding agents: read [AGENTS.md](AGENTS.md) first.
 
