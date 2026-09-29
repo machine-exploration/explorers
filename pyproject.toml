@@ -1,7 +1,7 @@
 [project]
 name = "machine-explorers"
 version = "0.0.1"
-description = "Infrastructure for understanding multi-agent AI."
+description = "An open stack for the science of deep learning: learning mechanics and mechanistic interpretability."
 requires-python = ">=3.11"
 dependencies = [
   "pydantic>=2.7",
