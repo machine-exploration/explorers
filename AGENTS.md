@@ -21,6 +21,10 @@ After the change, append:
 
 If a session learns how a runtime, a backend, a training setup, a measurement method, or a reference framework works, write that into `docs/` in the same session. The log is the chronology. The doc is the durable note.
 
+## Git
+
+Commit and push directly to `main`. Do not open feature branches or pull requests unless the founder asks for one.
+
 ## Reference frameworks, not dependencies
 
 [verifiers](https://github.com/PrimeIntellect-ai/verifiers) is a design reference for the runtime (environment, rubric, multi-turn rollout, token-id capture). Explorers does not import it and has no adapter for it. The same goes for Inspect and prime-rl.
