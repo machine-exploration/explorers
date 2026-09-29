@@ -2,12 +2,14 @@
 
 This repo is the `explorers` library, the open stack for Machine Exploration's mission: understand how intelligence arises in deep learning systems and build a science of deep learning, through learning mechanics (training dynamics) and mechanistic interpretability. Two horizons: now, oversight of agent populations with white-box methods; long term, the science. Keep the oversight code working and moving.
 
-The org vision and roadmap live in [machine-exploration/public](https://github.com/machine-exploration/public) (README.md, ROADMAP.md). Update them there, not here. The org's repositories:
+The org vision and roadmap live in [machine-exploration/public](https://github.com/machine-exploration/public) (README.md, ROADMAP.md). Update them there, not here. Thesis: a neural network is a learned computation over internal streams of state; Machine Exploration builds the instrumentation to read, write and trace them. One company, three programs: Explorers (the open-source interface), the Machine Exploration Runtime (executes studies at scale), Mechanics (the research program on how training creates computation). The org's repositories:
 
-- `explorers` (this repo): the populations prototype today (scenario format, multi-agent runtime, episodes, labels, detectors); the home of the unified workspace after roadmap step 0.
-- `mechanics`: the shared core (`explorers-core`: examples, states, observables, engine, store) and `explorers-learning`. It moves here in step 0. Until then, this repo's `explorers/__init__.py` hides the `explorers.core` namespace, so do not install both in one environment.
+- `explorers` (this repo): the open-source library. Today it holds the agent-side prototype (scenario format, multi-agent runtime, episodes, labels, detectors); after roadmap step 0 it holds all library code (`core`, `learning`, `populations`, streams, studies, backends, methods).
+- `mechanics`: today it holds the library core (`explorers-core`) and `explorers-learning`; after step 0 it becomes the research program (experiments, datasets, papers) and depends on `explorers`. Until then, this repo's `explorers/__init__.py` hides the `explorers.core` namespace, so do not install both in one environment.
 - `public`: vision, roadmap, and later research notes and results.
 - `verifiers`, `vllm`: pinned forks of upstream projects. No local changes.
+
+Library rules: every study must give the same result on every supported backend within a stated tolerance; speed claims are measured against existing tools (NNsight, TransformerLens) on the same study. TransformerLens and NNsight may be backends, behind an optional extra, imported only in their backend module.
 
 The public README of this repo is [README.md](README.md). The detailed internal README (founder plan) is `private/README.md`, the first use case is `private/first-use-case.md`, and the chronology is `private/LOG.md`. All are local only, ignored by git, never published. Keep strategy and plans (runway, funding, competitors, decision points, timelines) there, not in tracked files. Ask the founder before making any new file public.
 

@@ -10,19 +10,21 @@
 
 ## Layout
 
-The library has one core and two programs on top of it:
+`explorers` is the open-source interface of Machine Exploration: read, write and trace the streams of computation inside a model, and describe experiments as studies that run the same way on any backend.
 
-| Package | Clock | What it does | Where it is today |
-|---|---|---|---|
-| `explorers.core` | both | Examples, states, observables, the engine, the content-addressed store, analyses | [mechanics](https://github.com/machine-exploration/mechanics) `packages/core` |
-| `explorers.learning` | training time | Pythia checkpoints, toy tasks, probes, the quanta study | [mechanics](https://github.com/machine-exploration/mechanics) `packages/learning` |
-| `explorers.populations` | interaction time | Scenarios, the multi-agent runtime, episodes, labels, detectors | **this repository**, as the prototype package `explorers` |
+| Part | What it does | Where it is today |
+|---|---|---|
+| `explorers.core` | Examples, model states, observables, the engine (one forward pass per state), the content-addressed store, analyses | [mechanics](https://github.com/machine-exploration/mechanics) `packages/core` |
+| Streams and studies | `read` / `write` / `trace` on named streams; `Study` over models × checkpoints × examples | planned (roadmap E1, E2) |
+| Backends | Hugging Face / PyTorch first; then NNsight or TransformerLens | planned (E3) |
+| Methods | probes, lenses (the Jacobian lens exists), patching, attribution, sparse autoencoders | partly in [mechanics](https://github.com/machine-exploration/mechanics) `packages/learning` |
+| `explorers.populations` | Scenarios, the multi-agent runtime, episodes, labels, detectors | **this repository**, as the prototype package `explorers` |
 
-The next step ([roadmap step 0](https://github.com/machine-exploration/public/blob/main/ROADMAP.md#step-0--one-library--next)) moves all three into this repository as one workspace. Until then, do not install this repository next to `mechanics`: its `explorers/__init__.py` hides `explorers.core`.
+The next step ([roadmap step 0](https://github.com/machine-exploration/public/blob/main/ROADMAP.md#step-0--one-library--next)) moves all library code into this repository. Until then, do not install this repository next to `mechanics`: its `explorers/__init__.py` hides `explorers.core`.
 
 ## What is here today
 
-The populations prototype:
+The agent-side prototype (`explorers.populations` after step 0):
 
 - `explorers.scenario`: scenario format v0 with fail-closed validation.
 - `explorers.episode`: the immutable episode model and a JSONL store.
