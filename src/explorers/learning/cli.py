@@ -4,7 +4,7 @@ from pathlib import Path
 from explorers.learning.activations import Cache, HFSource
 from explorers.learning.checkpoints import pythia
 from explorers.learning.datasets import from_jsonl, number_comparison
-from explorers.learning.probes import DiffMeans, Logistic
+from explorers.methods.probes import DiffMeans, Logistic
 from explorers.learning.sweep import Sweep, write_records
 
 PROBES = {"diff_means": DiffMeans, "logistic": Logistic}

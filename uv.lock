@@ -13,21 +13,6 @@ resolution-markers = [
     "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
-[manifest]
-members = [
-    "explorers-core",
-    "explorers-learning",
-    "explorers-populations",
-]
-
-[manifest.dependency-groups]
-dev = [
-    { name = "explorers-core", extras = ["torch"], editable = "packages/core" },
-    { name = "explorers-learning", editable = "packages/learning" },
-    { name = "explorers-populations", editable = "packages/populations" },
-    { name = "pytest", specifier = ">=8" },
-]
-
 [[package]]
 name = "aiofiles"
 version = "25.1.0"
@@ -681,9 +666,9 @@ wheels = [
 ]
 
 [[package]]
-name = "explorers-core"
-version = "0.1.0.dev0"
-source = { editable = "packages/core" }
+name = "explorers"
+version = "0.2.0.dev0"
+source = { editable = "." }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -691,66 +676,47 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+populations = [
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
 torch = [
     { name = "torch" },
     { name = "transformers" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "numpy", specifier = ">=1.26" },
-    { name = "torch", marker = "extra == 'torch'", specifier = ">=2.2" },
-    { name = "transformers", marker = "extra == 'torch'", specifier = ">=4.40" },
-    { name = "xarray", specifier = ">=2024.1" },
-]
-provides-extras = ["torch"]
-
-[[package]]
-name = "explorers-learning"
-version = "0.1.0.dev0"
-source = { editable = "packages/learning" }
-dependencies = [
-    { name = "explorers-core" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-]
-
-[package.optional-dependencies]
-hf = [
-    { name = "explorers-core", extra = ["torch"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "explorers-core", editable = "packages/core" },
-    { name = "explorers-core", extras = ["torch"], marker = "extra == 'hf'", editable = "packages/core" },
-    { name = "numpy", specifier = ">=1.26" },
-]
-provides-extras = ["hf"]
-
-[[package]]
-name = "explorers-populations"
-version = "0.1.0.dev0"
-source = { editable = "packages/populations" }
-dependencies = [
-    { name = "explorers-core" },
+verifiers = [
     { name = "pydantic" },
     { name = "pyyaml" },
-]
-
-[package.optional-dependencies]
-verifiers = [
     { name = "verifiers" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "explorers", extra = ["populations", "torch"] },
+    { name = "pytest" },
+    { name = "tokenizers" },
+]
+
 [package.metadata]
 requires-dist = [
-    { name = "explorers-core", editable = "packages/core" },
-    { name = "pydantic", specifier = ">=2.7" },
-    { name = "pyyaml", specifier = ">=6" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "pydantic", marker = "extra == 'populations'", specifier = ">=2.7" },
+    { name = "pydantic", marker = "extra == 'verifiers'", specifier = ">=2.7" },
+    { name = "pyyaml", marker = "extra == 'populations'", specifier = ">=6" },
+    { name = "pyyaml", marker = "extra == 'verifiers'", specifier = ">=6" },
+    { name = "torch", marker = "extra == 'torch'", specifier = ">=2.2" },
+    { name = "transformers", marker = "extra == 'torch'", specifier = ">=4.40" },
     { name = "verifiers", marker = "extra == 'verifiers'", git = "https://github.com/machine-exploration/verifiers?rev=e66ec52966327e79011f4c3bb34a0f9817ce32b8" },
+    { name = "xarray", specifier = ">=2024.1" },
 ]
-provides-extras = ["verifiers"]
+provides-extras = ["torch", "populations", "verifiers"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "explorers", extras = ["torch", "populations"], editable = "." },
+    { name = "pytest", specifier = ">=8" },
+    { name = "tokenizers" },
+]
 
 [[package]]
 name = "filelock"

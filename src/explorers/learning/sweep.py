@@ -10,7 +10,7 @@ from explorers.learning.activations import ActivationSource
 from explorers.learning.checkpoints import Checkpoint
 from explorers.learning.datasets import Dataset, split_by_group
 from explorers.core.metrics import auroc, cluster_bootstrap
-from explorers.learning.probes import Probe
+from explorers.methods.probes import Probe
 
 FORMAT = "explorers.result/v0"
 

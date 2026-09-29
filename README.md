@@ -8,42 +8,55 @@
 
 ---
 
-## Layout
-
-`explorers` is the open-source interface of Machine Exploration: read, write and trace the streams of computation inside a model, and describe experiments as studies that run the same way on any backend. One repository, one `uv` workspace, three packages that share the `explorers` namespace:
-
-| Package | Import | What it holds |
-|---|---|---|
-| `packages/core` | `explorers.core` | Examples identified by content, model states along training, observables that declare what they read, the engine (one forward pass per state; gradient reads for the Jacobian lens), the content-addressed store, analyses |
-| `packages/learning` | `explorers.learning` | Pythia checkpoints, toy tasks with known answers, probes, the probe sweep |
-| `packages/populations` | `explorers.populations` | The scenario format, the multi-agent runtime (through the pinned [verifiers](https://github.com/machine-exploration/verifiers) fork), episodes, labels, detectors |
-
-Planned (roadmap [E1–E3](https://github.com/machine-exploration/public/blob/main/ROADMAP.md#phase-1--the-primitive)): named streams with `read` / `write` / `trace`, `Study` over models × checkpoints × examples, and backends beyond Hugging Face / PyTorch. The Runtime that executes studies at scale will be open source too.
-
-Design notes: [docs/design.md](docs/design.md) (core primitives), [docs/jlens.md](docs/jlens.md) (the Jacobian lens), [docs/pythia.md](docs/pythia.md) (checkpoints and hidden states), [docs/desk-spikes-2026-09-27.md](docs/desk-spikes-2026-09-27.md) (reading activations next to a trainer).
-
-## Example: when are quanta learned?
+## The interface
 
 ```python
-from explorers.core import analysis, observe
-from explorers.core.engine import over
-from explorers.learning import toy
+import explorers as ex
 
-task = toy.MultitaskLookup(n_tasks=16, n_symbols=16, alpha=1.3)   # tasks with Zipf frequencies
-run = toy.train(task, steps=1500, every=50)                       # a few minutes on a CPU
-ds = over(run, [observe.example_loss, observe.stable_rank, observe.update_norm], task.examples())
-on = analysis.onsets(ds.example_loss)            # when, and how suddenly, each example is learned
-analysis.spearman(ds.task_frequency, on.onset)   # frequent tasks are learned first: negative
+model = ex.open("EleutherAI/pythia-70m", revision="step143000")
+
+with model.trace(tokens) as run:                      # declared, then run once on exit
+    resid = run.stream("residual")
+    x = resid.read(layer=3, position=-1)
+    resid.write(layer=3, position=-1, fn=ex.steering.add(direction, 4.0))
+x.value, run.logits
 ```
 
-Research that uses the library (studies, datasets, papers) lives in [mechanics](https://github.com/machine-exploration/mechanics).
+Streams are named the same way on every architecture: `residual[L]` (entering block L; `residual[n]` is after the last block, before the final norm), `attn_out[L]`, `mlp_out[L]`. Known layouts: GPT-NeoX (Pythia), Llama (also Qwen, Mistral, OLMo), GPT-2.
+
+A **study** is the unit of work: reads, writes, measurements and patching over models (for example the checkpoints of a run) × examples.
+
+```python
+study = ex.Study(models=checkpoints, examples=corrupt)
+study.read("residual", layers="*", position=-1)
+study.patch(source=clean, stream="residual", metric=ex.patching.logit_diff(correct, wrong))
+ds = study.compute()                                   # an xarray Dataset with a `model` dimension
+```
+
+Design and the checks behind it: [docs/interface.md](docs/interface.md). Other notes: [docs/design.md](docs/design.md) (`explorers.core`: observables over training runs), [docs/jlens.md](docs/jlens.md) (the Jacobian lens), [docs/pythia.md](docs/pythia.md), [docs/desk-spikes-2026-09-27.md](docs/desk-spikes-2026-09-27.md).
+
+## Layout
+
+One package, `explorers`:
+
+| Module | What it holds |
+|---|---|
+| `explorers` (`model`, `trace`, `study`) | `open`, `Model`, `Trace`, streams, `Study` |
+| `explorers.methods` | probes, steering, patching metrics, sparse autoencoders |
+| `explorers.core` | examples identified by content, model states along training, observables, the engine (one forward pass per state; gradient reads for the Jacobian lens), the content-addressed store, analyses |
+| `explorers.learning` | Pythia checkpoints, toy tasks with known answers, the probe sweep |
+| `explorers.populations` | the scenario format, the multi-agent runtime (through the pinned [verifiers](https://github.com/machine-exploration/verifiers) fork), episodes, labels, detectors |
+
+Planned: a second backend (roadmap E3), then the planner and the Runtime that executes studies at scale (S1, S2, R1). The Runtime will be open source too. Research that uses the library lives in [mechanics](https://github.com/machine-exploration/mechanics).
 
 ## Development
 
 ```bash
-uv sync
+uv sync                  # the library with torch, transformers and the agent-side extras
 uv run pytest            # tiny models on a CPU, no downloads; GPU tests are skipped (marker: gpu)
 ```
+
+Extras for users: `explorers[torch]` (models and traces), `explorers[populations]` (scenarios), `explorers[verifiers]` (to play scenarios).
 
 ## Rules for scenarios
 
