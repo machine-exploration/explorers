@@ -102,6 +102,23 @@ equals the last hidden state, and `unembed(residual[n])` equals the logits, on a
 A write changes exactly its target, leaves earlier layers and earlier positions unchanged (causality),
 and a zero write leaves the logits unchanged.
 
+## One GPU: checkpoints, the result cache, one execution path
+
+- **Checkpoint handles.** `ex.checkpoints("EleutherAI/pythia-70m", steps=[...], device=, dtype=)`
+  returns `ModelRef`s: a repo id and a revision (`step<N>`), with the key `name@revision` known before
+  anything is downloaded. A study over them has a spec and a key before it runs; each model is
+  loaded when its turn comes and released after (the CUDA cache is emptied between models).
+- **The result cache.** `study.compute(store=folder)` stores each output of each model under
+  `sha256(study key | model key | output name)`, in the content-addressed store of `explorers.core`.
+  A model whose outputs are all stored is not loaded: a long study resumes where it stopped, and a
+  changed study (any parameter) gets new keys. The study must be serializable.
+- **One execution path.** `study.observe(*observables)` runs `explorers.core` observables (losses,
+  weight statistics, the Jacobian lens) on each model through `engine.measure`, the same per-state
+  measurement `core.over` uses; a test checks both give the same numbers. Observables measure the
+  unmodified model, so they cannot be combined with writes.
+- **Jacobians on a GPU.** `dim_batch` stacks that many copies of each batch, so one backward pass
+  gives that many rows of `J` (same result, fewer passes, more memory).
+
 ## Scaling: what is fixed, what is next
 
 Fixed: reads keep only their selection or a device-side reduction; interventions, reductions and
