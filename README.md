@@ -4,7 +4,9 @@ A learning mechanics library: measure what models learn, when, and why, across t
 
 **Status: pre-alpha.** The API will change.
 
-Part of [Machine Exploration](https://github.com/machine-exploration/public): see the [vision](https://github.com/machine-exploration/public#readme) and the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md). This repository moves into [machine-exploration/explorers](https://github.com/machine-exploration/explorers) as one workspace with `explorers.populations` (roadmap step 0).
+Part of [Machine Exploration](https://github.com/machine-exploration/public): see the [vision](https://github.com/machine-exploration/public#readme) and the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
+
+**Mechanics** is Machine Exploration's research program: how training creates representations, algorithms and circuits. Today this repository also holds the library code (`explorers-core`, `explorers-learning`). In roadmap step 0 that code moves to [machine-exploration/explorers](https://github.com/machine-exploration/explorers), and this repository keeps the research: experiments, datasets and papers, built on `explorers`.
 
 ## Idea
 
