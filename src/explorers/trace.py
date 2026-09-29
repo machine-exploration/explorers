@@ -12,8 +12,12 @@ Rules:
 - At one site, writes apply in the order they were declared; reads see the value after all writes
   at that site (what the rest of the model sees).
 - `position` is an int, a list of ints, a slice, or None (every position).
-- `write` takes `fn` (tensor -> tensor of the same shape) or `value` (a tensor broadcastable to the
-  selected slice, e.g. (batch, d) for one position: this is how patching is written).
+- `write` takes `fn` (tensor -> tensor of the same shape; an `explorers.ops` intervention such as
+  `Add` keeps the trace serializable) or `value` (a tensor broadcast to the selected slice, e.g.
+  (batch, d) for one position: patching; stored as `ops.Set`).
+- A read keeps only what it selects (a copy of the selected slice), or only the output of
+  `reduce=` (e.g. `ops.Project(direction)`), computed on the device before anything is stored. With
+  `grad=True` it also keeps a reference to the whole stream, for `.grad`.
 - With `grad=True`, the graph is kept (rooted at the embedding output, so frozen models work):
   compute a metric from `run.logits`, call `.backward()`, then read `value.grad`.
 """
@@ -31,15 +35,25 @@ class Value:
     stream: str
     layer: int
     position: object
-    _full: object = field(default=None, repr=False)
+    reduce: object = None
+    _data: object = field(default=None, repr=False)          # the selected (and reduced) slice
+    _full: object = field(default=None, repr=False)          # the whole stream, only with grad=True
     _ran: bool = field(default=False, repr=False)
+
+    def _capture(self, h, grad: bool):
+        x = h[:, _index(self.position)]
+        if self.reduce is not None:
+            x = self.reduce(x)
+        if grad:
+            self._full, self._data = h, x
+        else:
+            self._data = x.detach().clone()                   # a copy: the stream tensor can be freed
 
     @property
     def value(self):
         if not self._ran:
             raise RuntimeError("the trace has not run yet: read .value after the `with` block")
-        v = self._full[:, _index(self.position)]
-        return v if self._full.requires_grad else v.detach()
+        return self._data
 
     @property
     def grad(self):
@@ -52,17 +66,19 @@ class Stream:
     def __init__(self, trace: "Trace", name: str):
         self.trace, self.name = trace, name
 
-    def read(self, layer: int, position=None) -> Value:
+    def read(self, layer: int, position=None, reduce=None) -> Value:
         self.trace.model.site(self.name, layer)          # validate now, not at run time
-        v = Value(self.name, layer, position)
+        v = Value(self.name, layer, position, reduce)
         self.trace._reads.setdefault((self.name, layer), []).append(v)
         return v
 
     def write(self, layer: int, position=None, fn=None, value=None) -> None:
         if (fn is None) == (value is None):
             raise ValueError("write needs exactly one of fn= or value=")
+        from explorers.ops import Set
+
         self.trace.model.site(self.name, layer)
-        self.trace._writes.setdefault((self.name, layer), []).append((position, fn, value))
+        self.trace._writes.setdefault((self.name, layer), []).append((position, fn if fn is not None else Set(value)))
 
 
 class Trace:
@@ -84,20 +100,25 @@ class Trace:
         return False
 
     def _apply(self, key, h):
-        import torch
-
         writes = self._writes.get(key, [])
         if writes:
             h = h.clone()
-            for position, fn, value in writes:
+            for position, fn in writes:
                 idx = _index(position)
-                new = fn(h[:, idx]) if fn is not None else torch.as_tensor(value, dtype=h.dtype, device=h.device)
-                h[:, idx] = new
+                h[:, idx] = fn(h[:, idx])
         if self.grad and key in self._reads and h.requires_grad:
             h.retain_grad()
         for v in self._reads.get(key, []):
-            v._full = h if self.grad else h.detach()
+            v._capture(h, self.grad)
         return h
+
+    @property
+    def serializable(self) -> bool:
+        """True when every write and every reduction is `explorers.ops` data (no Python closures)."""
+        from explorers.ops import is_data
+
+        return (all(is_data(fn) for ws in self._writes.values() for _, fn in ws)
+                and all(is_data(v.reduce) for vs in self._reads.values() for v in vs))
 
     def run(self) -> "Trace":
         import torch

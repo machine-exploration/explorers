@@ -34,11 +34,38 @@ a whole experiment is known before it runs, so it can be planned.
 - **Order at one site:** writes apply in the order declared; reads see the value after all writes
   (what the rest of the model sees).
 - **Writes:** `fn=` (tensor → tensor, e.g. `ex.steering.add(direction, scale)`) or `value=` (a
-  tensor broadcast to the selected slice: patching).
+  tensor broadcast to the selected slice: patching; stored as `ops.Set`).
+- **Reads keep only what they select.** A read copies the selected slice (not the whole stream
+  tensor), or keeps only the output of `reduce=`, computed on the device before anything leaves
+  it (`ops.Project(direction)`, `ops.Norm()`). Reading one position of one layer costs
+  batch × d floats, not batch × seq × d. With `grad=True` a read also keeps a reference to the whole
+  stream, for `.grad`.
 - **Gradients:** `trace(..., grad=True)` keeps the graph, rooted at the embedding output so frozen
   models work. Compute a metric from `run.logits`, call `.backward()`, read `value.grad`.
 - **Hooks:** residual sites are forward pre-hooks on the block (or the final norm for L = n); sublayer
   sites are forward hooks on the attention or MLP module (tuple outputs: the first element).
+
+## Interventions as data
+
+`explorers.ops` holds interventions, reductions and metrics as frozen, callable dataclasses that
+round-trip through JSON (arrays as base64 float32):
+
+| Kind | Ops |
+|---|---|
+| Interventions (`write`) | `Add(vector, scale)`, `Set(value)`, `Scale(factor)`, `Ablate()`, `ProjectOut(direction)` |
+| Reductions (`read(..., reduce=)`) | `Project(direction)`, `Norm()` |
+| Metrics (`measure`, `patch`) | `LogitDiff(correct, wrong, position)` |
+
+`ex.steering.add` returns `ops.Add` and `ex.patching.logit_diff` returns `ops.LogitDiff`. Plain Python
+callables still work for local runs, but they cannot be sent to another machine or reasoned about by
+a planner, so they make a trace or study non-serializable (`trace.serializable` is `False`;
+`study.spec()` raises).
+
+`Study.spec()` returns the study as JSON-ready data, format `explorers.study/v0`: model content keys,
+the examples' fingerprint and shape, and every read, write, measure and patch as data.
+`Study.key()` hashes it: equal studies get equal keys on any machine, and changing any parameter,
+the weights or the examples changes the key. This key is what a result store and a remote executor
+will use.
 
 ## Studies
 
@@ -74,6 +101,16 @@ Reads also match the model: `residual[L]` equals `hidden_states[L]`, the final n
 equals the last hidden state, and `unembed(residual[n])` equals the logits, on all three layouts.
 A write changes exactly its target, leaves earlier layers and earlier positions unchanged (causality),
 and a zero write leaves the logits unchanged.
+
+## Scaling: what is fixed, what is next
+
+Fixed: reads keep only their selection or a device-side reduction; interventions, reductions and
+metrics are data; a study has a serializable spec and a content key.
+
+Next (roadmap S1, S2): studies split into deterministic tasks (model × batch of examples × group of
+sites) whose results go to a store keyed by `(study key, task)`, so studies resume and run on many
+devices; execution that starts from a cached layer instead of re-running the prefix, for patching;
+prefetching the next checkpoint while the current one computes.
 
 ## Not yet
 

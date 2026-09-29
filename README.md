@@ -24,7 +24,7 @@ x.value, run.logits
 
 Streams are named the same way on every architecture: `residual[L]` (entering block L; `residual[n]` is after the last block, before the final norm), `attn_out[L]`, `mlp_out[L]`. Known layouts: GPT-NeoX (Pythia), Llama (also Qwen, Mistral, OLMo), GPT-2.
 
-A **study** is the unit of work: reads, writes, measurements and patching over models (for example the checkpoints of a run) × examples.
+A **study** is the unit of work: reads, writes, measurements and patching over models (for example the checkpoints of a run) × examples. Built from `explorers.ops` (interventions, reductions and metrics as data), a study serializes to JSON (`study.spec()`) and has a content key (`study.key()`), so it can be stored, compared and sent to another machine.
 
 ```python
 study = ex.Study(models=checkpoints, examples=corrupt)

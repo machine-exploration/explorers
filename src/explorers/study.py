@@ -11,6 +11,10 @@ A study only declares; `compute` executes it. Models can be `Model`s, zero-argum
 return one (loaded one at a time and released), or a `explorers.core.Trajectory` of checkpoints.
 Writes declared on the study apply to every run of the study, patched runs included.
 
+A study made only of `explorers.ops` data (interventions, reductions, metrics) serializes to JSON
+with `spec()` and has a content `key()`: that is what can be stored, compared and sent to a remote
+executor. Python callables still work locally, but `spec()` refuses them.
+
 Execution today is direct (one traced forward pass per batch, one per patched site). The plan is
 the part the Runtime will optimise; the results must not change when it does.
 """
@@ -29,21 +33,38 @@ def _as_tokens(examples):
 
 
 def _models(models):
-    """[(coordinate, loader)] for any accepted form of `models`."""
+    """[(coordinate, content key or None, loader)] for any accepted form of `models`."""
     from explorers.model import Model
 
     states = getattr(models, "states", None)
     if states is not None:                                     # explorers.core.Trajectory
-        return [(s.step, lambda s=s: Model(s.load(), name=s.run, revision=f"step{s.step}")) for s in states]
+        return [(s.step, s.key, lambda s=s: Model(s.load(), name=s.run, revision=f"step{s.step}")) for s in states]
     if isinstance(models, Model) or callable(models) and not isinstance(models, (list, tuple)):
         models = [models]
     out = []
     for i, m in enumerate(models):
         if isinstance(m, Model):
-            out.append((m.key, lambda m=m: m))
+            out.append((m.key, m.key, lambda m=m: m))
         else:
-            out.append((i, m))
+            out.append((i, None, m))
     return out
+
+
+def _fingerprint(examples) -> str:
+    fp = getattr(examples, "fingerprint", None)
+    if fp is not None:
+        return fp
+    import hashlib
+
+    return hashlib.sha256(np.asarray(examples, dtype=np.int64).tobytes()).hexdigest()[:16]
+
+
+def _position(p):
+    if p is None or isinstance(p, int) or p == "*":
+        return p
+    if isinstance(p, (list, tuple)):
+        return [int(x) for x in p]
+    raise ValueError(f"position {p!r} cannot be serialized: use an int, a list of ints or None")
 
 
 def _layers(layers, top: int):
@@ -54,6 +75,7 @@ class Study:
     def __init__(self, models, examples, batch_size: int = 16):
         self._models = _models(models)
         self.tokens, self.example_ids = _as_tokens(examples)
+        self._fingerprint = _fingerprint(examples)
         self.batch_size = batch_size
         self.reads: list = []
         self.writes: list = []
@@ -62,14 +84,17 @@ class Study:
 
     # --- declarations -------------------------------------------------------------------------
 
-    def read(self, stream: str, layers, position=None, name: str | None = None) -> "Study":
-        self.reads.append((name or stream, stream, layers, position))
+    def read(self, stream: str, layers, position=None, name: str | None = None, reduce=None) -> "Study":
+        """`reduce` (e.g. `ops.Project(direction)`) runs on the device; only its output is kept."""
+        self.reads.append((name or stream, stream, layers, position, reduce))
         return self
 
     def write(self, stream: str, layer: int, position=None, fn=None, value=None) -> "Study":
         if (fn is None) == (value is None):
             raise ValueError("write needs exactly one of fn= or value=")
-        self.writes.append((stream, layer, position, fn, value))
+        from explorers.ops import Set
+
+        self.writes.append((stream, layer, position, fn if fn is not None else Set(value)))
         return self
 
     def measure(self, name: str, fn) -> "Study":
@@ -91,16 +116,52 @@ class Study:
         src, _ = _as_tokens(source)
         if src.shape != self.tokens.shape:
             raise ValueError("source and target examples must have the same shape")
-        self.patches.append((name, src, stream, layers, positions, metric, method))
+        self.patches.append((name, src, stream, layers, positions, metric, method, _fingerprint(source)))
         return self
+
+    # --- serialization -----------------------------------------------------------------------
+
+    def spec(self) -> dict:
+        """The study as JSON-ready data (format `explorers.study/v0`). Raises if any part is a Python
+        callable instead of `explorers.ops` data, or if a model has no content key."""
+        from explorers.ops import is_data
+
+        def data(x, what):
+            if not is_data(x):
+                raise ValueError(f"{what} is a Python callable; use explorers.ops to make the study serializable")
+            return None if x is None else x.to_dict()
+
+        keys = [key for _, key, _ in self._models]
+        if any(k is None for k in keys):
+            raise ValueError("a model is a loader without a content key; pass Model objects or a Trajectory")
+        layers = lambda ls: ls if ls == "*" else [int(x) for x in ls]  # noqa: E731
+        return {
+            "format": "explorers.study/v0",
+            "models": keys,
+            "examples": {"fingerprint": self._fingerprint, "shape": list(self.tokens.shape)},
+            "reads": [{"name": n, "stream": s, "layers": layers(ls), "position": _position(p),
+                       "reduce": data(r, f"read {n!r} reduce")} for n, s, ls, p, r in self.reads],
+            "writes": [{"stream": s, "layer": int(layer), "position": _position(p), "op": data(fn, f"write {i}")}
+                       for i, (s, layer, p, fn) in enumerate(self.writes)],
+            "measures": [{"name": n, "metric": data(fn, f"measure {n!r}")} for n, fn in self.measures],
+            "patches": [{"name": n, "source": fp, "stream": s, "layers": layers(ls), "positions": _position(ps),
+                         "metric": data(m, f"patch {n!r} metric"), "method": method}
+                        for n, _src, s, ls, ps, m, method, fp in self.patches],
+        }
+
+    def key(self) -> str:
+        """Content key of the study: equal studies get equal keys, on any machine."""
+        from explorers.ops import spec_hash
+
+        return spec_hash(self.spec())
 
     # --- execution ----------------------------------------------------------------------------
 
     def _trace(self, model, ids, reads=(), extra_writes=(), grad=False):
         run = model.trace(ids, grad=grad)
-        for stream, layer, position, fn, value in list(self.writes) + list(extra_writes):
-            run.stream(stream).write(layer, position, fn=fn, value=value)
-        values = [run.stream(s).read(layer, position) for s, layer, position in reads]
+        for stream, layer, position, fn in list(self.writes) + list(extra_writes):
+            run.stream(stream).write(layer, position, fn=fn)
+        values = [run.stream(s).read(layer, position, reduce) for s, layer, position, reduce in reads]
         run.run()
         return run, values
 
@@ -113,9 +174,9 @@ class Study:
 
         out: dict = {}
         top = {"residual": model.n_layers}
-        read_specs = [(name, s, _layers(layers, top.get(s, model.n_layers - 1)), pos)
-                      for name, s, layers, pos in self.reads]
-        flat = [(s, layer, pos) for _, s, layers, pos in read_specs for layer in layers]
+        read_specs = [(name, s, _layers(layers, top.get(s, model.n_layers - 1)), pos, red)
+                      for name, s, layers, pos, red in self.reads]
+        flat = [(s, layer, pos, red) for _, s, layers, pos, red in read_specs for layer in layers]
         if flat or self.measures:
             parts = {i: [] for i in range(len(flat))}
             meas = {name: [] for name, _ in self.measures}
@@ -127,24 +188,28 @@ class Study:
                 for name, fn in self.measures:
                     meas[name].append(torch.as_tensor(fn(run.logits, ids)).float().cpu().numpy())
             k = 0
-            for name, s, layers, pos in read_specs:
+            for name, s, layers, pos, red in read_specs:
                 arrs = [np.concatenate(parts[k + j]) for j in range(len(layers))]
                 k += len(layers)
-                stacked = np.stack(arrs, axis=1)                  # (example, layer, [position], d)
-                dims = ("example", "layer", "position", "d") if stacked.ndim == 4 else ("example", "layer", "d")
+                stacked = np.stack(arrs, axis=1)                  # (example, layer, [position], [d])
+                has_pos = not isinstance(pos, int)
+                dims = ("example", "layer") + (("position",) if has_pos else ())
+                dims += ("d",) if stacked.ndim == len(dims) + 1 else ()
                 coords = {"layer": layers}
-                if stacked.ndim == 4:
+                if has_pos:
                     seq = self.tokens.shape[1]
                     coords["position"] = np.arange(seq)[pos if pos is not None else slice(None)]
                 out[name] = xr.DataArray(stacked, dims=dims, coords=coords)
             for name, chunks in meas.items():
                 out[name] = xr.DataArray(np.concatenate(chunks), dims=("example",))
-        for name, src, stream, layers, positions, metric, method in self.patches:
+        for name, src, stream, layers, positions, metric, method, _fp in self.patches:
             out[name] = self._patch(model, src, stream, layers, positions, metric, method)
         return out
 
     def _patch(self, model, src, stream, layers, positions, metric, method) -> xr.DataArray:
         import torch
+
+        from explorers.ops import Set
 
         seq = self.tokens.shape[1]
         top = model.n_layers if stream == "residual" else model.n_layers - 1
@@ -152,7 +217,7 @@ class Study:
         positions = list(range(seq)) if positions == "*" else list(positions)
         result = np.full((len(layers), len(positions), len(self.tokens)), np.nan)
         for b in self._batches():
-            clean_run, clean_acts = self._trace(model, src[b], [(stream, layer, None) for layer in layers])
+            clean_run, clean_acts = self._trace(model, src[b], [(stream, layer, None, None) for layer in layers])
             m_clean = torch.as_tensor(metric(clean_run.logits, clean_run.ids)).float()
             if method == "exact":
                 base, _ = self._trace(model, self.tokens[b])
@@ -160,11 +225,11 @@ class Study:
                 for li, layer in enumerate(layers):
                     for pi, pos in enumerate(positions):
                         patched, _ = self._trace(model, self.tokens[b], extra_writes=[
-                            (stream, layer, pos, None, clean_acts[li].value[:, pos])])
+                            (stream, layer, pos, Set(clean_acts[li].value[:, pos]))])
                         m = torch.as_tensor(metric(patched.logits, patched.ids)).float()
                         result[li, pi, b] = ((m - m_corrupt) / (m_clean - m_corrupt)).cpu().numpy()
             else:
-                run, acts = self._trace(model, self.tokens[b], [(stream, layer, None) for layer in layers], grad=True)
+                run, acts = self._trace(model, self.tokens[b], [(stream, layer, None, None) for layer in layers], grad=True)
                 m_corrupt = metric(run.logits, run.ids)
                 m_corrupt.sum().backward()
                 denom = (m_clean - m_corrupt.detach().float())
@@ -177,7 +242,7 @@ class Study:
 
     def compute(self) -> xr.Dataset:
         per_model, coords = [], []
-        for coord, load in self._models:
+        for coord, _key, load in self._models:
             model = load()
             per_model.append(xr.Dataset(self._compute_model(model)))
             coords.append(coord)
