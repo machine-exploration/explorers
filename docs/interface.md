@@ -1,7 +1,8 @@
 # The design of `explorers`, on one page
 
-Written 2026-09-29, after the lean pass. The rule: few concepts, each essential; one way to do each
-thing; data structures first.
+Written 2026-09-29, after the lean pass. The thesis: a neural network is a learned computation; its
+weights are the program, and its internal streams carry the running state. The rule: few concepts,
+each essential; one way to do each thing; data structures first.
 
 ## Six concepts
 
@@ -59,6 +60,19 @@ can be planned. Results must not change when it is.
 - Results are an `xarray.Dataset`. The first dimension is `step` when every model is a checkpoint
   with a step (a `Trajectory`, or `ex.checkpoints`), otherwise `model`. Example metadata columns
   become coordinates on `example`.
+
+## Canonical and derived data
+
+- **Canonical** (stored or referenced, never recomputed): the weights (a checkpoint, by its model key
+  `name@revision`), the examples (by fingerprint), and the study (by its spec and key).
+- **Derived:** streams are a function of weights and examples, so they are recomputed, not stored;
+  a read keeps only its selection or reduction. Results are a function of all three, so they are
+  cached by content key and can always be rebuilt.
+- Weights are not a seventh concept: a Model holds them and a Measure reads them (`weights`, and
+  `step` for before, after and the gradient). Today they carry PyTorch parameter names. Planned, when
+  the first weight-space measure needs it: uniform names across layouts, as for streams
+  (`attn.W_Q[L]`, `attn.W_K[L]`, `attn.W_V[L]`, `attn.W_O[L]`, `mlp.W_in[L]`, `mlp.W_out[L]`, `embed`,
+  `unembed`), GPT-NeoX first, with the same exact checks (a named weight equals the parameter it maps).
 
 ## Checks, exact by construction
 
