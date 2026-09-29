@@ -1,22 +1,15 @@
 """Content-addressed results.
 
-A result is keyed by everything that determines it: the state's content key, the observable's
-name, version and parameters, and the examples' fingerprint. Identical measurements made on
-different machines get the same key, so result folders can be merged by copying files.
+A result is stored under a key that hashes everything that determines it (for a study: the study
+key, the model key and the output name). Identical results made on different machines get the same
+key, so result folders can be merged by copying files.
 """
 
-import hashlib
 import json
 from pathlib import Path
 
 import numpy as np
 import xarray as xr
-
-
-def result_key(state_key: str, obs, examples_fingerprint: str) -> str:
-    payload = json.dumps([state_key, obs.name, obs.version, [list(p) for p in obs.params],
-                          examples_fingerprint], default=str)
-    return hashlib.sha256(payload.encode()).hexdigest()[:32]
 
 
 class Store:

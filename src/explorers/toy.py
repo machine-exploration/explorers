@@ -9,8 +9,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from explorers.core.data import Examples
-from explorers.core.state import Step, Trajectory, snapshot
+from explorers.data import Examples
+from explorers.state import Step, Trajectory, snapshot
 
 
 @dataclass(frozen=True)

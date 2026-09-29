@@ -9,9 +9,7 @@ transformers = pytest.importorskip("transformers")
 import explorers as ex  # noqa: E402
 import explorers.model  # noqa: E402
 from explorers import ops  # noqa: E402
-from explorers.core import Examples, observe  # noqa: E402
-from explorers.core.engine import over  # noqa: E402
-from explorers.core.state import Trajectory, snapshot  # noqa: E402
+from explorers import measures  # noqa: E402
 
 V, D, L, SEQ = 16, 32, 3, 8
 
@@ -48,7 +46,7 @@ def test_checkpoint_handles_have_keys_before_loading(hub):
     study = ex.Study(refs, tokens()).read("residual", layers=[1], position=-1, reduce=ops.Norm())
     assert study.spec()["models"] == [r.key for r in refs]          # hashable before any download
     ds = study.compute()
-    assert list(ds.model.values) == [0, 10, 20] and hub == ["step0", "step10", "step20"]
+    assert list(ds.step.values) == [0, 10, 20] and hub == ["step0", "step10", "step20"]
 
 
 def test_store_resumes_and_follows_the_study(hub, tmp_path):
@@ -69,22 +67,23 @@ def test_store_needs_a_serializable_study(tmp_path):
         study.compute(store=tmp_path)
 
 
-def test_observe_is_the_same_measurement_as_over():
-    states = [snapshot(tiny(seed), "tiny", seed) for seed in (0, 1)]
-    run = Trajectory(run="tiny", states=states)
-    ex_ = Examples(tokens=tokens(), meta={"split": np.array(["fit"] * 4 + ["eval"] * 2)})
-    obs = [observe.jlens_error([1, 2], skip_first=1), observe.logit_lens_error([1, 2], skip_first=1),
-           observe.example_loss]
-    a = over(run, obs, ex_)
-    b = ex.Study(run, ex_).observe(*obs).compute()
-    for name in ("jlens_error", "logit_lens_error", "example_loss"):
-        np.testing.assert_allclose(b[name].values, a[name].values, rtol=1e-5, atol=1e-6)
+def test_writes_apply_to_measures():
+    """One execution path: measures see the model as the study modified it."""
+    model, ids = ex.open(tiny(0)), tokens()
+    base = ex.Study(model, ids).measure(measures.loss, measures.residual_norm(2)).compute()
+    ablated = (ex.Study(model, ids).write("residual", 2, fn=ops.Ablate())
+               .measure(measures.loss, measures.residual_norm(2)).compute())
+    assert np.allclose(ablated.residual_norm_2.values, 0)
+    assert not np.isclose(ablated.loss.item(), base.loss.item())
 
 
-def test_observables_refuse_writes():
-    study = ex.Study(ex.open(tiny(0)), tokens()).write("residual", 1, fn=ops.Scale(2.0)).observe(observe.loss)
-    with pytest.raises(ValueError, match="unmodified"):
-        study.compute()
+def test_logit_diff_is_the_same_as_a_patching_metric():
+    model, ids = ex.open(tiny(0)), tokens()
+    ld = measures.logit_diff(3, 5)
+    ds = ex.Study(model, ids).measure(ld).compute()
+    with model.trace(ids) as run:
+        pass
+    np.testing.assert_allclose(ds.logit_diff.values[0], (run.logits[:, -1, 3] - run.logits[:, -1, 5]).numpy(), rtol=1e-5)
 
 
 def test_dtype_and_progress(capsys):

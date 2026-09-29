@@ -1,12 +1,14 @@
-"""explorers.core on its own: no torch, no other explorers package."""
+"""Examples, states, the store, measures and analyses on their own: no torch."""
 
 import numpy as np
 import pytest
 import xarray as xr
 
-from explorers.core import Examples, State, Store, analysis, observable
-from explorers.core.observe import Context
-from explorers.core.store import result_key
+from explorers import analysis
+from explorers.data import Examples
+from explorers.measures import Context, measure
+from explorers.state import State
+from explorers.store import Store
 
 
 def examples(n=6, seq=3):
@@ -26,14 +28,14 @@ def test_example_ids_follow_content():
         Examples(ex.tokens, loss_mask=np.ones((1, 1), dtype=bool))
 
 
-def test_observable_checks_declared_dims():
-    ctx = Context(state=None, examples=examples(), token_loss=np.ones((6, 3)))
+def test_measure_checks_declared_dims():
+    ctx = Context(examples=examples(), token_loss=np.ones((6, 3)))
 
-    @observable(reads=["token_loss"], dims=("example",))
+    @measure(reads=["token_loss"], dims=("example",))
     def per_example(ctx):
         return ctx.token_loss.mean(1)
 
-    @observable(reads=["token_loss"], dims=("example",))
+    @measure(reads=["token_loss"], dims=("example",))
     def wrong(ctx):
         return ctx.token_loss.mean()
 
@@ -42,19 +44,19 @@ def test_observable_checks_declared_dims():
         wrong(ctx)
 
 
-def test_store_roundtrip_and_keys(tmp_path):
-    @observable(reads=["weights"], dims=("param",), version="0")
+def test_store_roundtrip_and_merge(tmp_path):
+    @measure(reads=["weights"], dims=("param",), version="0")
     def norms(ctx):
         return xr.DataArray([1.0, 2.0], dims=("param",), coords={"param": ["a", "b"]})
 
-    ex, store = examples(), Store(tmp_path)
-    key = result_key("params:abc", norms, ex.fingerprint)
-    assert store.get(key) is None
-    store.put(key, norms(Context(state=None, examples=ex)), {"note": "test"})
-    back = store.get(key)
+    ex, store = examples(), Store(tmp_path / "a")
+    assert store.get("k" * 32) is None
+    store.put("k" * 32, norms(Context(examples=ex)), {"note": "test"})
+    back = store.get("k" * 32)
     assert list(back.param.values) == ["a", "b"] and back.values.tolist() == [1.0, 2.0]
-    assert result_key("params:abd", norms, ex.fingerprint) != key          # other state
-    assert result_key("params:abc", norms, ex.with_meta(x=np.zeros(6)).fingerprint) != key
+    import shutil
+    shutil.copytree(tmp_path / "a", tmp_path / "b")                 # folders merge by copying
+    assert Store(tmp_path / "b").get("k" * 32).values.tolist() == [1.0, 2.0]
 
 
 def test_state_is_lazy():

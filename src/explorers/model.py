@@ -188,3 +188,29 @@ def checkpoints(name: str, steps, device: str = "cpu", dtype=None, revision_form
     `ex.checkpoints("EleutherAI/pythia-70m", steps=[0, 1000, 143000])`. Revisions default to
     `step<N>`; the study coordinate is the step."""
     return [ModelRef(name, revision_format.format(s), step=int(s), device=device, dtype=dtype) for s in steps]
+
+
+# --- checkpoint schedules (docs/pythia.md) ---------------------------------------------------
+
+def pythia_steps() -> list[int]:
+    """The 154 Pythia checkpoints: step 0, powers of two up to 512, then every 1000 up to 143000."""
+    return [0] + [2 ** i for i in range(10)] + list(range(1000, 143001, 1000))
+
+
+def pick(steps: list[int], n: int) -> list[int]:
+    """`n` steps spread evenly in log-step, always keeping the first and the last.
+    Early training changes fastest, so a log spread spends checkpoints where things move."""
+    steps = sorted(set(steps))
+    if n >= len(steps):
+        return steps
+    if n < 2:
+        raise ValueError("pick at least 2 steps")
+    chosen = {steps[0], steps[-1]}
+    positive = [s for s in steps if s > 0]
+    lo, hi = positive[0], positive[-1]
+    k = n - len(chosen)
+    for i in range(1, k + 1):
+        target = lo * (hi / lo) ** (i / (k + 1))
+        free = [s for s in steps if s not in chosen]
+        chosen.add(min(free, key=lambda s: abs(s - target)))
+    return sorted(chosen)

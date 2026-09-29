@@ -19,8 +19,9 @@ Durable notes on the backend `explorers` reads from. Written 2026-09-28; the tin
 
 - `model(**enc, output_hidden_states=True).hidden_states` is a tuple of `num_hidden_layers + 1`
   tensors of shape `(batch, seq, d_model)`. Index 0 is the embedding output; index L is the
-  residual stream after block L. `explorers` uses the same numbering for `layers`.
-- Pythia's tokenizer has no pad token. `HFSource` sets `pad_token = eos_token` and pads on the
+  residual stream after block L. `explorers`' `residual[L]` equals `hidden_states[L]` for L < n; at
+  L = n, Hugging Face has applied the final norm and `explorers` has not (docs/interface.md).
+- Pythia's tokenizer has no pad token. A reader that pads must set `pad_token = eos_token` and pad on the
   right. With a causal model, right padding never changes the states of real tokens, so the
   `last` position is `attention_mask.sum(1) - 1` and `mean` averages over the mask.
 - Activations are returned as float32 NumPy arrays whatever the model dtype.

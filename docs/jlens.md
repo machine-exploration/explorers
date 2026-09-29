@@ -1,6 +1,7 @@
 # The Jacobian lens (J-lens)
 
-Durable note on the J-lens reads and observables in `explorers.core`. Written 2026-09-29.
+Durable note on the Jacobian lens in `explorers` (reads served by `execute.py`, measures in
+`measures.py`). Written 2026-09-29; names updated after the lean pass.
 
 ## What it measures
 
@@ -11,7 +12,7 @@ The J-lens reads out what an internal activation is disposed to make the model s
 lens_L(h) = unembed(J_L @ h),   J_L = E[ d final / d h_L ]
 ```
 
-- `h_L` is the residual stream after block `L` (`hidden:<L>`, 0 = embeddings).
+- `h_L` is the residual stream entering block `L` (`residual:<L>`, 0 = embeddings).
 - `final` is the residual after the last block, **before** the final norm. In Hugging Face
   models, `hidden_states[-1]` is after the final norm, so the engine captures `final` with a
   forward pre-hook on the final norm (`FINAL_NORMS` in `engine.py`).
@@ -38,16 +39,16 @@ are averaged over source positions and examples. Cost: `d_model` backward passes
 | `final` | read | `(example, position, d_model)` before the final norm |
 | `unembed` | read | `ctx.unembed_topk(h, k)`: top-k token ids of the model's own decoding |
 | `jacobian:<L>:<skip>` | read | `J_L`, `(d_model, d_model)` |
-| `observe.jacobian(L, skip_first)` | observable | the fitted `J_L`, stored like any result |
-| `observe.jlens_error(layers, skip_first)` | observable | per layer: how often the lens top-1 differs from the model's own top-1 at the same position |
-| `observe.logit_lens_error(layers, skip_first)` | observable | the same without transport (`J` = identity): the baseline |
+| `measures.jacobian(L, skip_first)` | measure | the fitted `J_L`, stored like any result |
+| `measures.jlens_error(layers, skip_first)` | measure | per layer: how often the lens top-1 differs from the model's own top-1 at the same position |
+| `measures.logit_lens_error(layers, skip_first)` | measure | the same without transport (`J` = identity): the baseline |
 
 Both error curves fall as a layer's content becomes what the model says, so they work directly
 with `analysis.onsets` across checkpoints.
 
 ## Validation
 
-- `packages/learning/tests/test_jlens.py`: the estimator equals a brute-force Jacobian computed
+- `tests/test_jlens.py`: the estimator equals a brute-force Jacobian computed
   one scalar at a time; fitting uses only the fit rows; frozen parameters give the same `J`;
   results are cached in the store; `final` is before the norm.
 - Against the reference implementation, `anthropics/jacobian-lens` at
@@ -57,19 +58,18 @@ with `analysis.onsets` across checkpoints.
 - Note: that reference's built-in Pythia layout names the output layer `embed_out`; current
   `transformers` names it `lm_head`, so the check passed an explicit layout.
 
-## Example: Q1 on Pythia (not yet run: needs Hugging Face access)
+## Example: Q1 on Pythia (see mechanics/experiments/q1_verbalizable_space)
 
 ```python
-from explorers.core import analysis, observe
-from explorers.core.data import Examples
-from explorers.core.engine import over
-from explorers.learning import from_checkpoints, pythia
+import numpy as np
+import explorers as ex
 
-run = from_checkpoints(pythia("70m", n=24), device="cuda")
-examples = Examples.from_texts(texts, tokenizer, seq_len=128, max_examples=200)
+name = "EleutherAI/pythia-70m"
+examples = ex.Examples.from_texts(texts, tokenizer, seq_len=128, max_examples=200)
 examples = examples.with_meta(split=np.where(np.arange(len(examples)) < 100, "fit", "eval"))
 layers = range(1, 6)
-ds = over(run, [observe.jlens_error(layers), observe.logit_lens_error(layers)], examples,
-          store="runs/store", device="cuda")
-on = analysis.onsets(ds.jlens_error)      # when each layer's readout becomes what the model says
+ds = (ex.Study(ex.checkpoints(name, steps=ex.pick(ex.pythia_steps(), 24), device="cuda"), examples, dim_batch=8)
+      .measure(ex.measures.jlens_error(layers), ex.measures.logit_lens_error(layers))
+      .compute(store="runs/store"))
+on = ex.analysis.onsets(ds.jlens_error)   # when each layer's readout becomes what the model says
 ```

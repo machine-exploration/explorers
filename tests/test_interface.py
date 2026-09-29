@@ -77,7 +77,7 @@ def test_write_changes_exactly_the_target():
         before = [base.stream("residual").read(layer) for layer in range(L + 1)]
     with model.trace(ids) as run:
         resid = run.stream("residual")
-        resid.write(1, position=2, fn=ex.steering.add(d))
+        resid.write(1, position=2, fn=ex.ops.Add(d))
         after = [resid.read(layer) for layer in range(L + 1)]
     torch.testing.assert_close(after[1].value[:, 2], before[1].value[:, 2] + d)      # the read sees the write
     torch.testing.assert_close(after[1].value[:, [0, 1, 3, 4, 5]], before[1].value[:, [0, 1, 3, 4, 5]])
@@ -92,7 +92,7 @@ def test_zero_write_and_value_write():
     with model.trace(ids) as base:
         x = base.stream("residual").read(2, position=3)
     with model.trace(ids) as run:
-        run.stream("residual").write(2, position=3, fn=ex.steering.add(torch.zeros(D)))
+        run.stream("residual").write(2, position=3, fn=ex.ops.Add(torch.zeros(D)))
     torch.testing.assert_close(run.logits, base.logits)
     with model.trace(ids) as run2:
         run2.stream("residual").write(2, position=3, value=x.value)
@@ -149,10 +149,13 @@ def test_steering_toward_a_token():
     model, ids = neox(), tokens()
     t = 7
     u = model.module.get_output_embeddings().weight[t].detach() * model.norm.weight.detach()
-    logit_t = lambda logits, _ids: logits[:, -1, t]
-    base = ex.Study(model, ids).measure("logit_t", logit_t).compute()
-    steered = (ex.Study(model, ids).write("residual", L, position=-1, fn=ex.steering.add(u, 50.0))
-               .measure("logit_t", logit_t).compute())
+
+    @ex.measures.measure(reads=["logits:-1"], dims=("example",))
+    def logit_t(ctx):
+        return ctx.logits[-1][:, t]
+
+    base = ex.Study(model, ids).measure(logit_t).compute()
+    steered = ex.Study(model, ids).write("residual", L, position=-1, fn=ex.ops.Add(u, 50.0)).measure(logit_t).compute()
     assert (steered.logit_t.values > base.logit_t.values).all()
 
 
@@ -167,7 +170,7 @@ def pairs(n=4, seed=0):
 def test_activation_patching_exact_by_construction():
     model = neox()
     clean, corrupt = pairs()
-    metric = ex.patching.logit_diff(correct=3, wrong=5)
+    metric = ex.measures.logit_diff(correct=3, wrong=5)
     ds = ex.Study(model, corrupt).patch(source=clean, stream="residual", metric=metric).compute()
     p = ds.patch.sel(model=model.key)
     np.testing.assert_allclose(p.sel(layer=0, position=0), 1.0, atol=1e-4)       # the only difference
@@ -180,7 +183,7 @@ def test_attribution_patching():
     """Where exact patching is linear in the site, attribution patching is exact: with the final
     norm removed, the metric is linear in residual[L] at the last position."""
     model, (clean, corrupt) = neox(), pairs()
-    metric = ex.patching.logit_diff(correct=3, wrong=5)
+    metric = ex.measures.logit_diff(correct=3, wrong=5)
     attr = ex.Study(model, corrupt).patch(source=clean, metric=metric, method="attribution").compute()
     a = attr.patch.sel(model=model.key)
     np.testing.assert_allclose(a.sel(layer=0).isel(position=slice(1, None)), 0.0, atol=1e-6)   # no difference
@@ -208,11 +211,11 @@ def test_sae_read():
 
 
 def test_study_over_checkpoints_of_a_run():
-    from explorers.learning import toy
+    from explorers import toy
 
     task = toy.MultitaskLookup(n_tasks=4, n_symbols=4)
     run = toy.train(task, steps=20, every=10)
     ds = ex.Study(run, task.examples()).read("residual", layers="*", position=-1).compute()
-    assert list(ds.model.values) == [0, 10, 20]
-    assert ds.residual.dims == ("model", "example", "layer", "d")
-    assert not np.allclose(ds.residual.sel(model=0), ds.residual.sel(model=20))
+    assert list(ds.step.values) == [0, 10, 20]
+    assert ds.residual.dims == ("step", "example", "layer", "d")
+    assert not np.allclose(ds.residual.sel(step=0), ds.residual.sel(step=20))

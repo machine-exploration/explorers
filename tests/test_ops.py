@@ -81,12 +81,11 @@ def test_intervention_semantics():
 
 @pytest.mark.parametrize("op", [ops.Add(np.arange(D, dtype=np.float32), 0.5), ops.Set(np.ones((4, D))),
                                 ops.Scale(3.0), ops.Ablate(), ops.ProjectOut(np.ones(D)),
-                                ops.Project(np.ones(D)), ops.Norm(), ops.LogitDiff(3, 5, -1),
-                                ops.LogitDiff([1, 2, 3, 4], 5)])
+                                ops.Project(np.ones(D)), ops.Norm()])
 def test_ops_round_trip_through_json(op):
     again = ops.Op.from_dict(json.loads(json.dumps(op.to_dict())))
     assert type(again) is type(op)
-    h = torch.randn(4, SEQ, D) if not isinstance(op, ops.LogitDiff) else torch.randn(4, SEQ, V)
+    h = torch.randn(4, SEQ, D)
     x = h[:, -1] if isinstance(op, ops.Set) else h
     torch.testing.assert_close(again(x), op(x))
 
@@ -96,9 +95,9 @@ def test_ops_round_trip_through_json(op):
 def data_study(model, ids, scale=2.0):
     return (ex.Study(model, ids)
             .read("residual", layers="*", position=-1, reduce=ops.Norm())
-            .write("residual", 1, position=-1, fn=ex.steering.add(np.ones(D), scale))
-            .measure("ld", ex.patching.logit_diff(3, 5))
-            .patch(source=ids[::-1].copy(), metric=ex.patching.logit_diff(3, 5), layers=[0, L], positions=[0]))
+            .write("residual", 1, position=-1, fn=ex.ops.Add(np.ones(D), scale))
+            .measure(ex.measures.logit_diff(3, 5))
+            .patch(source=ids[::-1].copy(), metric=ex.measures.logit_diff(3, 5), layers=[0, L], positions=[0]))
 
 
 def test_study_spec_is_json_and_its_key_follows_content():
@@ -113,7 +112,7 @@ def test_study_spec_is_json_and_its_key_follows_content():
 
 def test_callables_run_locally_but_do_not_serialize():
     model, ids = neox(), tokens()
-    study = ex.Study(model, ids).write("residual", 1, position=-1, fn=lambda h: h * 2).measure("ld", ex.patching.logit_diff(3, 5))
+    study = ex.Study(model, ids).write("residual", 1, position=-1, fn=lambda h: h * 2).measure(ex.measures.logit_diff(3, 5))
     study.compute()                                                                        # runs
     with pytest.raises(ValueError, match="callable"):
         study.spec()

@@ -1,4 +1,4 @@
-"""Interventions, reductions and metrics as data.
+"""Interventions and reductions as data: what a trace does to a stream, and what a read keeps.
 
 A study made only of these can be written to JSON, hashed, sent to another machine and planned.
 Plain Python callables still work for local runs, but they make a study non-serializable.
@@ -14,8 +14,7 @@ Reductions (for `read(..., reduce=)`), applied on the device before anything is 
   Project(direction)      h · direction          (..., d) -> (...)
   Norm()                  ||h||                  (..., d) -> (...)
 
-Metrics (for `measure` and `patch`), logits (batch, seq, vocab) -> (batch,):
-  LogitDiff(correct, wrong, position)
+Measurements (losses, logit differences, lenses) are `explorers.measures`, not ops.
 """
 
 import base64
@@ -127,25 +126,6 @@ class Project(Op):
 class Norm(Op):
     def __call__(self, h):
         return h.norm(dim=-1)
-
-
-@_register
-@dataclass(frozen=True, eq=False)
-class LogitDiff(Op):
-    """logit[correct] - logit[wrong] at `position`, per example. Token ids: one per example or one
-    for all."""
-    correct: object
-    wrong: object
-    position: int = -1
-
-    def __call__(self, logits, ids=None):
-        import torch
-
-        last = logits[:, self.position]
-        rows = torch.arange(len(last), device=last.device)
-        c = torch.as_tensor(np.asarray(self.correct), dtype=torch.long, device=last.device).expand(len(last))
-        w = torch.as_tensor(np.asarray(self.wrong), dtype=torch.long, device=last.device).expand(len(last))
-        return last[rows, c] - last[rows, w]
 
 
 def is_data(x) -> bool:
