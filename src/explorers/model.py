@@ -136,14 +136,55 @@ class Model:
         return f"Model({self.key}, layers={self.n_layers}, d_model={self.d_model})"
 
 
+def _dtype(dtype):
+    if dtype is None or not isinstance(dtype, str):
+        return dtype
+    import torch
+
+    return getattr(torch, dtype)
+
+
 def open(name_or_module, revision: str | None = None, device: str = "cpu", dtype=None,
          tokenizer=True) -> Model:
     """Open a model: a Hugging Face repo id (with an optional revision, e.g. a Pythia `step1000`),
-    or an already-built module."""
+    or an already-built module. `dtype` is a torch dtype or its name ("float16", "bfloat16")."""
+    dtype = _dtype(dtype)
     if not isinstance(name_or_module, str):
-        return Model(name_or_module, tokenizer=None if tokenizer is True else tokenizer, device=device)
+        module = name_or_module if dtype is None else name_or_module.to(dtype)
+        return Model(module, tokenizer=None if tokenizer is True else tokenizer, device=device)
+    import transformers
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    module = AutoModelForCausalLM.from_pretrained(name_or_module, revision=revision, torch_dtype=dtype)
+    kw = {"dtype" if int(transformers.__version__.split(".")[0]) >= 5 else "torch_dtype": dtype}
+    module = AutoModelForCausalLM.from_pretrained(name_or_module, revision=revision, **kw)
     tok = AutoTokenizer.from_pretrained(name_or_module, revision=revision) if tokenizer is True else tokenizer
     return Model(module, tokenizer=tok, name=name_or_module, revision=revision, device=device)
+
+
+@dataclass(frozen=True)
+class ModelRef:
+    """A model that is not loaded yet: a repo id and a revision. Its key is known without
+    downloading anything, so studies over checkpoints can be hashed and cached before they run."""
+    name: str
+    revision: str | None = None
+    step: int | None = None
+    device: str = "cpu"
+    dtype: object = None
+
+    @property
+    def key(self) -> str:
+        return f"{self.name}@{self.revision}"
+
+    def load(self) -> Model:
+        return open(self.name, revision=self.revision, device=self.device, dtype=self.dtype)
+
+
+def checkpoint(name: str, revision: str | None = None, device: str = "cpu", dtype=None) -> ModelRef:
+    return ModelRef(name, revision, device=device, dtype=dtype)
+
+
+def checkpoints(name: str, steps, device: str = "cpu", dtype=None, revision_format: str = "step{}") -> list[ModelRef]:
+    """Lazy handles for the checkpoints of a suite, e.g. Pythia:
+    `ex.checkpoints("EleutherAI/pythia-70m", steps=[0, 1000, 143000])`. Revisions default to
+    `step<N>`; the study coordinate is the step."""
+    return [ModelRef(name, revision_format.format(s), step=int(s), device=device, dtype=dtype) for s in steps]

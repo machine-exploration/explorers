@@ -7,9 +7,14 @@
     study.patch(source=clean, stream="residual", layers="*", positions="*", metric=metric)
     ds = study.compute()
 
-A study only declares; `compute` executes it. Models can be `Model`s, zero-argument callables that
-return one (loaded one at a time and released), or a `explorers.core.Trajectory` of checkpoints.
-Writes declared on the study apply to every run of the study, patched runs included.
+A study only declares; `compute` executes it. Models can be `Model`s, lazy handles from
+`ex.checkpoints(...)` (loaded one at a time and released), zero-argument callables that return a
+`Model`, or an `explorers.core.Trajectory`. Writes declared on the study apply to every run of the
+study, patched runs included. `observe` runs `explorers.core` observables (losses, weight statistics,
+the Jacobian lens) on each model, on the unmodified model.
+
+`compute(store=path)` caches each output of each model under (study key, model key, output name), so
+a long study over many checkpoints resumes where it stopped.
 
 A study made only of `explorers.ops` data (interventions, reductions, metrics) serializes to JSON
 with `spec()` and has a content `key()`: that is what can be stored, compared and sent to a remote
@@ -33,20 +38,24 @@ def _as_tokens(examples):
 
 
 def _models(models):
-    """[(coordinate, content key or None, loader)] for any accepted form of `models`."""
-    from explorers.model import Model
+    """[(coordinate, content key or None, loader, owned)] for any accepted form of `models`.
+    `owned` models are loaded by the study and released after use."""
+    from explorers.model import Model, ModelRef
 
     states = getattr(models, "states", None)
     if states is not None:                                     # explorers.core.Trajectory
-        return [(s.step, s.key, lambda s=s: Model(s.load(), name=s.run, revision=f"step{s.step}")) for s in states]
-    if isinstance(models, Model) or callable(models) and not isinstance(models, (list, tuple)):
+        return [(s.step, s.key, lambda s=s: Model(s.load(), name=s.run, revision=f"step{s.step}"), True)
+                for s in states]
+    if isinstance(models, (Model, ModelRef)) or callable(models) and not isinstance(models, (list, tuple)):
         models = [models]
     out = []
     for i, m in enumerate(models):
         if isinstance(m, Model):
-            out.append((m.key, m.key, lambda m=m: m))
+            out.append((m.key, m.key, lambda m=m: m, False))
+        elif isinstance(m, ModelRef):
+            out.append((m.step if m.step is not None else m.key, m.key, m.load, True))
         else:
-            out.append((i, None, m))
+            out.append((i, None, m, True))
     return out
 
 
@@ -72,11 +81,16 @@ def _layers(layers, top: int):
 
 
 class Study:
-    def __init__(self, models, examples, batch_size: int = 16):
+    def __init__(self, models, examples, batch_size: int = 16, dim_batch: int = 1):
+        """`dim_batch`: copies of each batch stacked when fitting Jacobians (see `observe`); more is
+        faster on a GPU and uses more memory. It does not change results."""
         self._models = _models(models)
         self.tokens, self.example_ids = _as_tokens(examples)
         self._fingerprint = _fingerprint(examples)
+        self._examples = examples if hasattr(examples, "fingerprint") else None
+        self.observables: list = []
         self.batch_size = batch_size
+        self.dim_batch = dim_batch
         self.reads: list = []
         self.writes: list = []
         self.measures: list = []
@@ -100,6 +114,12 @@ class Study:
     def measure(self, name: str, fn) -> "Study":
         """`fn(logits, ids) -> (batch,)`: a scalar per example, from the output logits."""
         self.measures.append((name, fn))
+        return self
+
+    def observe(self, *observables) -> "Study":
+        """`explorers.core` observables (e.g. `observe.jlens_error(layers)`), measured on each model
+        with one shared forward pass (and one backward sweep for Jacobians)."""
+        self.observables.extend(observables)
         return self
 
     def patch(self, source, stream: str = "residual", layers="*", positions="*", metric=None,
@@ -131,7 +151,7 @@ class Study:
                 raise ValueError(f"{what} is a Python callable; use explorers.ops to make the study serializable")
             return None if x is None else x.to_dict()
 
-        keys = [key for _, key, _ in self._models]
+        keys = [key for _, key, _, _ in self._models]
         if any(k is None for k in keys):
             raise ValueError("a model is a loader without a content key; pass Model objects or a Trajectory")
         layers = lambda ls: ls if ls == "*" else [int(x) for x in ls]  # noqa: E731
@@ -144,6 +164,8 @@ class Study:
             "writes": [{"stream": s, "layer": int(layer), "position": _position(p), "op": data(fn, f"write {i}")}
                        for i, (s, layer, p, fn) in enumerate(self.writes)],
             "measures": [{"name": n, "metric": data(fn, f"measure {n!r}")} for n, fn in self.measures],
+            "observables": [{"name": o.name, "version": o.version, "params": [[k, str(v)] for k, v in o.params]}
+                            for o in self.observables],
             "patches": [{"name": n, "source": fp, "stream": s, "layers": layers(ls), "positions": _position(ps),
                          "metric": data(m, f"patch {n!r} metric"), "method": method}
                         for n, _src, s, ls, ps, m, method, fp in self.patches],
@@ -204,7 +226,20 @@ class Study:
                 out[name] = xr.DataArray(np.concatenate(chunks), dims=("example",))
         for name, src, stream, layers, positions, metric, method, _fp in self.patches:
             out[name] = self._patch(model, src, stream, layers, positions, metric, method)
-        return out
+        if self.observables:
+            if self.writes:
+                raise ValueError("observables measure the unmodified model; they cannot be combined with writes")
+            from explorers.core.data import Examples
+            from explorers.core.engine import measure
+
+            examples = self._examples if self._examples is not None else Examples(tokens=self.tokens)
+            out.update(measure(model.module, self.observables, examples, self.batch_size, device=model.device,
+                               dim_batch=self.dim_batch))
+        return {k: v.reset_coords(drop=True) for k, v in out.items()}
+
+    def _names(self) -> list[str]:
+        return ([n for n, *_ in self.reads] + [n for n, _ in self.measures] + [p[0] for p in self.patches]
+                + [o.name for o in self.observables])
 
     def _patch(self, model, src, stream, layers, positions, metric, method) -> xr.DataArray:
         import torch
@@ -240,13 +275,48 @@ class Study:
         return xr.DataArray(result, dims=("layer", "position", "example"),
                             coords={"layer": layers, "position": positions})
 
-    def compute(self) -> xr.Dataset:
+    def compute(self, store=None, verbose: bool = False) -> xr.Dataset:
+        """Run the study. With `store` (a folder), each output of each model is cached under
+        (study key, model key, output name); models whose outputs are all cached are not loaded."""
+        import gc
+        import hashlib
+        import time
+        from pathlib import Path
+
+        from explorers.core.store import Store
+
+        if store is not None:
+            store = store if isinstance(store, Store) else Store(Path(store))
+            study_key = self.key()                     # raises if the study is not serializable
         per_model, coords = [], []
-        for coord, _key, load in self._models:
-            model = load()
-            per_model.append(xr.Dataset(self._compute_model(model)))
+        for i, (coord, key, load, owned) in enumerate(self._models):
+            t0 = time.time()
+            cached = {}
+            if store is not None:
+                ckeys = {n: hashlib.sha256(f"{study_key}|{key}|{n}".encode()).hexdigest()[:32] for n in self._names()}
+                cached = {n: store.get(k) for n, k in ckeys.items()}
+            if cached and all(v is not None for v in cached.values()):
+                outputs, how = cached, "cached"
+            else:
+                model = load()
+                outputs, how = self._compute_model(model), "computed"
+                if store is not None:
+                    for n, da in outputs.items():
+                        store.put(ckeys[n], da, {"study": study_key, "model": key, "output": n})
+                del model
+                if owned:
+                    gc.collect()
+                    try:
+                        import torch
+
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except ImportError:
+                        pass
+            per_model.append(xr.Dataset(outputs))
             coords.append(coord)
-            del model
+            if verbose:
+                print(f"[{i + 1}/{len(self._models)}] {key or coord}: {how} in {time.time() - t0:.1f}s", flush=True)
         ds = xr.concat(per_model, dim="model")
         ds = ds.assign_coords(model=coords)
         if "example" in ds.dims:

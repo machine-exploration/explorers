@@ -53,6 +53,15 @@ def test_jacobian_matches_brute_force(layer):
     np.testing.assert_allclose(fast, brute_force(model, ex, layer, 1), rtol=1e-4, atol=1e-5)
 
 
+@pytest.mark.parametrize("dim_batch", [2, 3, 8])
+def test_dim_batch_gives_the_same_jacobian(dim_batch):
+    model, ex = tiny_neox(), random_examples()
+    one = _jacobians(model, ex, {(0, 1), (1, 1), (1, 2)}, batch_size=2, device="cpu")
+    many = _jacobians(model, ex, {(0, 1), (1, 1), (1, 2)}, batch_size=2, device="cpu", dim_batch=dim_batch)
+    for key in one:
+        np.testing.assert_allclose(many[key], one[key], rtol=1e-5, atol=1e-6)
+
+
 def test_frozen_parameters():
     model, ex = tiny_neox(), random_examples()
     free = _jacobians(model, ex, {(1, 1)}, batch_size=3, device="cpu")[(1, 1)]

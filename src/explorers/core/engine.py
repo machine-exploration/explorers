@@ -69,7 +69,7 @@ def _forward(model, examples: Examples, layers: list[int], batch_size: int, devi
 
 
 def _jacobians(model, examples: Examples, requests: set[tuple[int, int]], batch_size: int,
-               device: str) -> dict:
+               device: str, dim_batch: int = 1) -> dict:
     """J_L for each requested (layer, skip_first): the average Jacobian of the final residual
     (before the final norm) with respect to the residual after block L.
 
@@ -77,6 +77,9 @@ def _jacobians(model, examples: Examples, requests: set[tuple[int, int]], batch_
     example at once, and one backward pass gives row k at every source position. By causality,
     the row at source position p is sum_{t >= p} d final[t, k] / d h_L[p]. Rows are averaged over
     source positions and examples. Fitted on the rows where `split == "fit"`, if that column exists.
+
+    `dim_batch` > 1 stacks that many copies of each batch, so one backward pass gives that many rows
+    (same result, fewer passes, `dim_batch` times the activation memory): faster on a GPU.
     """
     import torch
 
@@ -97,23 +100,28 @@ def _jacobians(model, examples: Examples, requests: set[tuple[int, int]], batch_
     try:
         for i in range(0, n, batch_size):
             ids = torch.as_tensor(tokens[i : i + batch_size], device=device)
+            b = len(ids)
             with torch.enable_grad():
-                out = model(input_ids=ids, output_hidden_states=True)
-                target = captured["h"]
+                out = model(input_ids=ids.repeat(dim_batch, 1), output_hidden_states=True)
+                target = captured["h"]                                   # (dim_batch * b, seq, d)
                 sources = [out.hidden_states[layer] for layer in layers]
                 skips = sorted(count)
-                for s_idx, skip in enumerate(skips):
+                chunks = [(skip, k0) for skip in skips for k0 in range(0, d, dim_batch)]
+                cotangent = torch.zeros_like(target)
+                for c_idx, (skip, k0) in enumerate(chunks):
                     pos = torch.as_tensor(lens_positions(seq, skip), device=device)
-                    cotangent = torch.zeros_like(target)
-                    for k in range(d):
-                        cotangent.zero_()
-                        cotangent[:, pos, k] = 1.0
-                        last = s_idx == len(skips) - 1 and k == d - 1
-                        grads = torch.autograd.grad(target, sources, cotangent, retain_graph=not last)
-                        for layer, g in zip(layers, grads):
-                            if (layer, skip) in sums:
-                                sums[(layer, skip)][k] += g[:, pos].double().sum(dim=(0, 1)).cpu()
-                    count[skip] += len(ids) * len(pos)
+                    rows = min(dim_batch, d - k0)
+                    cotangent.zero_()
+                    for j in range(rows):                                # copy j carries output dim k0 + j
+                        cotangent[j * b:(j + 1) * b, pos, k0 + j] = 1.0
+                    grads = torch.autograd.grad(target, sources, cotangent, retain_graph=c_idx < len(chunks) - 1)
+                    for layer, g in zip(layers, grads):
+                        if (layer, skip) in sums:
+                            g = g[:, pos].double()
+                            for j in range(rows):
+                                sums[(layer, skip)][k0 + j] += g[j * b:(j + 1) * b].sum(dim=(0, 1)).cpu()
+                for skip in skips:
+                    count[skip] += b * len(lens_positions(seq, skip))
     finally:
         hook.remove()
         root.remove()
@@ -149,8 +157,38 @@ def _label_examples(da: xr.DataArray, examples: Examples) -> xr.DataArray:
     return da
 
 
+def _fill(ctx: Context, model, observables: list[Observable], examples: Examples, batch_size: int,
+          device: str, dim_batch: int = 1) -> None:
+    """Serve every read the observables declare from one model: one batched forward pass for
+    losses, hidden states and the final residual, and one backward sweep for Jacobians."""
+    reads = set().union(*(o.reads for o in observables)) if observables else set()
+    if "weights" in reads:
+        ctx.weights = _weights(model)
+    layers = sorted(int(r.split(":")[1]) for r in reads if r.startswith("hidden:"))
+    want_final = "final" in reads
+    if "token_loss" in reads or layers or want_final:
+        ctx.token_loss, ctx.hidden, ctx.final = _forward(model, examples, layers, batch_size, device, want_final)
+    jac = {(int(r.split(":")[1]), int(r.split(":")[2])) for r in reads if r.startswith("jacobian:")}
+    if jac:
+        ctx.jacobian = _jacobians(model, examples, jac, batch_size, device, dim_batch)
+    if "unembed" in reads:
+        ctx.unembed_topk = _unembed_topk(model, device)
+
+
+def measure(model, observables: list[Observable], examples: Examples, batch_size: int = 16,
+            device: str = "cpu", state=None, dim_batch: int = 1) -> dict:
+    """Every (state) observable on one model: {name: DataArray}, examples labelled. The same
+    measurement `over` makes at each state of a trajectory, and `Study.observe` at each model."""
+    if any(o.on_steps for o in observables):
+        raise ValueError("step observables need a trajectory with steps; use over()")
+    ctx = Context(state=state, examples=examples)
+    _fill(ctx, model, observables, examples, batch_size, device, dim_batch)
+    return {o.name: _label_examples(o(ctx), examples) for o in observables}
+
+
 def over(trajectory: Trajectory, observables: list[Observable], examples: Examples,
-         store: Store | Path | None = None, batch_size: int = 16, device: str = "cpu") -> xr.Dataset:
+         store: Store | Path | None = None, batch_size: int = 16, device: str = "cpu",
+         dim_batch: int = 1) -> xr.Dataset:
     if store is not None and not isinstance(store, Store):
         store = Store(store)
     state_obs = [o for o in observables if not o.on_steps]
@@ -174,20 +212,8 @@ def over(trajectory: Trajectory, observables: list[Observable], examples: Exampl
         todo = [o for o in state_obs if cached[o.name] is None]
         ctx = Context(state=state, examples=examples)
         if todo:
-            reads = set().union(*(o.reads for o in todo))
             model = state.load()
-            if "weights" in reads:
-                ctx.weights = _weights(model)
-            layers = sorted(int(r.split(":")[1]) for r in reads if r.startswith("hidden:"))
-            want_final = "final" in reads
-            if "token_loss" in reads or layers or want_final:
-                ctx.token_loss, ctx.hidden, ctx.final = _forward(model, examples, layers, batch_size,
-                                                                 device, want_final)
-            jac = {(int(r.split(":")[1]), int(r.split(":")[2])) for r in reads if r.startswith("jacobian:")}
-            if jac:
-                ctx.jacobian = _jacobians(model, examples, jac, batch_size, device)
-            if "unembed" in reads:
-                ctx.unembed_topk = _unembed_topk(model, device)
+            _fill(ctx, model, todo, examples, batch_size, device, dim_batch)
             del model
         for o in state_obs:
             prov = {"run": state.run, "step": state.step, "state": state.key, "observable": o.name,

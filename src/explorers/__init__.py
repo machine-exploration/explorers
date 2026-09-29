@@ -18,9 +18,9 @@ content-addressed store, analyses), `explorers.learning` (checkpoint suites, toy
 
 from explorers import ops
 from explorers.methods import patching, sae, steering
-from explorers.model import Model, open
+from explorers.model import Model, ModelRef, checkpoint, checkpoints, open
 from explorers.study import Study
 from explorers.trace import Trace, Value
 
 __version__ = "0.2.0.dev0"
-__all__ = ["Model", "Study", "Trace", "Value", "open", "ops", "patching", "sae", "steering"]
+__all__ = ["Model", "ModelRef", "Study", "checkpoint", "checkpoints", "Trace", "Value", "open", "ops", "patching", "sae", "steering"]
