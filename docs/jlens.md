@@ -58,6 +58,32 @@ with `analysis.onsets` across checkpoints.
 - Note: that reference's built-in Pythia layout names the output layer `embed_out`; current
   `transformers` names it `lm_head`, so the check passed an explicit layout.
 
+## What the paper says about the method
+
+From Gurnee et al., "Verbalizable Representations Form a Global Workspace in Language Models"
+(Transformer Circuits, July 2026), read 2026-09-29:
+
+- **Target layer.** Their default Jacobian is taken at the **penultimate** layer's residual, not
+  the final one; including the last block adds noisy readouts (§A.7). Ours uses `final`
+  (pre-norm, after the last block). Aggregation: mean over positions, then over prompts; median and
+  frozen-QK variants change little. Frozen QK can increase causal effects.
+- **Data.** 1,000 sequences of 128 tokens by default; the J-lens beats the logit and tuned lens
+  with as few as 10 prompts (Fig. 59).
+- **Next-token agreement is not the target.** The J-lens is the *worst* of the three lenses at
+  predicting the model's next token through most layers, by design (Fig. 55). So `jlens_error`
+  (disagreement with the model's top-1) measures the late "motor" regime, where every lens
+  converges on the output. It does not measure the workspace.
+- **Workspace signatures** (§4.1, Fig. 28), all computable from a fitted `J`:
+  excess kurtosis of readouts; top-1 autocorrelation across positions against a shuffled null;
+  effective dimensionality of `W_U J_L` (collapsed before the workspace, fans out at its onset);
+  CKA between layers of the J-lens vectors (block structure: early, workspace, motor);
+  occupancy by sparse non-negative decomposition (about 25 active vectors).
+- **Recovery of known intermediates** (pass@k on multi-hop, arithmetic, poetry, typo prompts,
+  §A.6) is their main quality check against the logit and tuned lens.
+- **Training dynamics are open** (§9.1): the space is present in base models before post-training
+  (§6), but "we do not know how much earlier in pretraining it emerges, whether it appears
+  gradually or abruptly, or how it scales with model size".
+
 ## Example: Q1 on Pythia (see mechanics/experiments/q1_verbalizable_space)
 
 ```python
