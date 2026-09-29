@@ -3,7 +3,7 @@
 > **Toward a science of deep learning.**
 > Machine Exploration studies how intelligence arises in deep learning systems: how training builds the mechanisms a model computes with, and how to read those mechanisms once they exist. We publish the research and the open stack it runs on. `explorers` is where the stack starts.
 
-**Status: pre-alpha.** Nothing is released yet. The mission changed on 2026-09-29; the code in this repository still comes from the earlier multi-agent work (see [What is here today](#what-is-here-today)). This README describes what we are building and in what order. Names and API are illustrative and will change.
+**Status: pre-alpha.** Nothing is released yet. The mission changed on 2026-09-29; the code in this repository so far covers the application to agent oversight (see [What is here today](#what-is-here-today)). This README describes what we are building and in what order. Names and API are illustrative and will change.
 
 PyPI: `machine-explorers` (planned) · `import explorers`
 
@@ -41,6 +41,12 @@ The questions, in the order we take them:
 
 The method: start with **model organisms**, small tasks where the mechanism is known or can be found (modular arithmetic, sparse parity, in-context learning, toy superposition). Validate every measurement there against ground truth. Then carry it to open models where the answer is not known.
 
+## Application: agent oversight
+
+We expect the science to pay off first in oversight. Agents now run as populations that share tools, caches and channels, and their failures can be collective: in July 2026 about 1,200 agents in an internal OpenAI evaluation found a shared cache, turned it into a message board and helped each other cheat ([METR](https://metr.org/blog/2026-08-26-openai-hugging-face-incident-investigation/), [Redwood Research](https://www.redwoodresearch.org/research/hugging-face-incident)). Transcripts can be spoofed and logs rewritten, so oversight has to read the models, not only what they write.
+
+White-box monitors (probes and other readings of activations) already catch reward hacking in open models ([Goodfire](https://arxiv.org/abs/2609.19101)). The science decides whether to trust them: when the feature a probe reads forms in training, whether it is causal, whether it survives further training or is obfuscated under pressure. Agent scenarios are where the stack's methods are tested on the behaviour that matters, against text monitors at the same false-positive rate.
+
 ## The stack
 
 Package names are working names.
@@ -55,7 +61,7 @@ The two measurement libraries share one interface, so a dynamics measure and a m
 
 ## Core abstraction
 
-The goal is an abstraction where adding a method, a model organism, or compute never touches the core. It carries over from the multi-agent design: immutable records, pure versioned methods, one annotation schema.
+The goal is an abstraction where adding a method, a model organism, or compute never touches the core. It carries over from the agent-oversight code: immutable records, pure versioned methods, one annotation schema.
 
 - **`Run`: immutable data.** Config, seed, data order, and checkpoints at chosen steps, with optimizer state. Nothing edits a run; `branch` forks a new one from any checkpoint with one change (data, learning rate, seed). That is the intervention experiment for dynamics.
 - **`Method`: pure, versioned functions.** `method(inputs, needs) -> annotations`. Inputs are checkpoints or other methods' annotations, so methods compose.
@@ -99,12 +105,14 @@ The circuit is known, so this is ground truth for the stack. The first question:
 - **Reproducible:** every result replays from its run config, seed, data order and code version.
 - **Ground truth first:** a method is validated on a model organism where the mechanism is known before it is used where it is not.
 - **Causal, not only correlational:** a claim that a mechanism exists is tested by intervention (ablation, patching, branching the run), not only by a probe that correlates.
-- **Against baselines:** a new signal is compared with the simple ones (loss, weight norm, gradient norm) at the same budget.
+- **Against baselines:** a new signal is compared with the simple ones (loss, weight norm, gradient norm) at the same budget. A white-box monitor is compared with chain-of-thought monitors and LLM judges at the same false-positive rate.
 - **Small before large:** a question is settled on a model that fits one GPU before it is asked of a large one.
+- **Contained:** scenarios that push agents to hack run with no network, no shared cache and no path between episodes. Publication rules for such scenarios and their traces are settled before release.
+- **Audit isolation:** oversight monitors run outside the trainer's process and write to an append-only, hash-chained store that the reward code cannot read.
 
 ## What is here today
 
-The current code is from the earlier line of work, which studied agent populations (reward hacking and coordination among agents that share infrastructure):
+The current code is the start of the agent-oversight application: reproducible multi-agent scenarios where agents can hack and coordinate, with labels that come for free.
 
 - `explorers.scenario`: scenario format v0 with fail-closed validation.
 - `explorers.episode`: the immutable episode model and a JSONL store.
@@ -112,14 +120,17 @@ The current code is from the earlier line of work, which studied agent populatio
 - `explorers.runtime.verifiers`: compiling a scenario for, and converting traces from, the [verifiers](https://github.com/PrimeIntellect-ai/verifiers) runtime.
 - `explorers.exploration` and `explorers.metrics`: the study unit and Wilson rates.
 
-It stays as it is. Its core ideas (immutable records, pure versioned methods, one annotation schema) are the ones the new stack generalises from episodes to training runs. Scenarios that push agents to hack keep their containment rules: no network, no shared cache, no path between episodes.
+The first scenario is the Hugging Face incident in miniature: agents on impossible tasks, a shared board, a sealed sandbox. Because the tasks are impossible, any passing solution is a hack, and a hack that spreads through the board is coordination.
+
+The code's core ideas (immutable records, pure versioned methods, one annotation schema) are the ones the new stack generalises from episodes to training runs.
 
 ## Roadmap
 
 1. **Grokking on one timeline**, hand-rolled, to find out which measurements matter.
 2. **v0.1:** the run format, the `Method` interface over checkpoints, and two methods of different kinds (a dynamics measure and a mechanism measure) running on the same run through one interface.
 3. **Induction heads** in small transformers, then **open model suites** with public checkpoints.
-4. **A shared hub** for runs, measurements and results.
+4. **Back to agents:** white-box monitors built and validated with the stack, run on the agent scenarios. First question: does anything inside the models signal coordination before it shows in behaviour?
+5. **A shared hub** for runs, measurements, scenarios and results.
 
 ## Open questions
 
@@ -127,7 +138,6 @@ It stays as it is. Its core ideas (immutable records, pure versioned methods, on
 - A checkpoint format and a storage budget. Dense checkpoints are large even for small models.
 - Existing tools (TransformerLens, nnsight, SAELens, devinterp): build on them, or treat them as design references as we do verifiers.
 - A model-agnostic way to name a site (layer, component, position) that survives across checkpoints and architectures.
-- Whether agent populations stay a research subject under the new mission.
 - License: Apache-2.0 or MIT.
 
 ## Contributing
@@ -160,8 +170,11 @@ Open models with training checkpoints
 - Biderman et al., *Pythia*, [arXiv:2304.01373](https://arxiv.org/abs/2304.01373)
 - Groeneveld et al., *OLMo*, [arXiv:2402.00838](https://arxiv.org/abs/2402.00838)
 
-Earlier multi-agent line
+Agent oversight
 
 - METR and Redwood Research, investigation of the OpenAI / Hugging Face hacking incident (2026): [METR](https://metr.org/blog/2026-08-26-openai-hugging-face-incident-investigation/) · [Redwood Research](https://www.redwoodresearch.org/research/hugging-face-incident)
 - Goodfire, *Monitoring and Discovering Reward Hacking with Internal Representations during LLM Evaluations*, [arXiv:2609.19101](https://arxiv.org/abs/2609.19101)
+- Zhong et al., *ImpossibleBench*, [arXiv:2510.20270](https://arxiv.org/abs/2510.20270)
+- Taufeeque et al., *The Obfuscation Atlas*, [arXiv:2602.15515](https://arxiv.org/abs/2602.15515)
+- Gupta & Jenner, *RL-Obfuscation*, [arXiv:2506.14261](https://arxiv.org/abs/2506.14261)
 - [verifiers](https://github.com/PrimeIntellect-ai/verifiers), design reference for the agent runtime
