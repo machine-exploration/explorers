@@ -4,6 +4,8 @@ A learning mechanics library: measure what models learn, when, and why, across t
 
 **Status: pre-alpha.** The API will change.
 
+Part of [Machine Exploration](https://github.com/machine-exploration/public): see the [vision](https://github.com/machine-exploration/public#readme) and the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md). This repository moves into [machine-exploration/explorers](https://github.com/machine-exploration/explorers) as one workspace with `explorers.populations` (roadmap step 0).
+
 ## Idea
 
 Training runs are trajectories. `explorers` treats a run as a sequence of model states (published
@@ -29,8 +31,9 @@ See [docs/design.md](docs/design.md).
 ## Example: when are quanta learned?
 
 ```python
-from explorers import analysis, observe, toy
-from explorers.engine import over
+from explorers.core import analysis, observe
+from explorers.core.engine import over
+from explorers.learning import toy
 
 task = toy.MultitaskLookup(n_tasks=16, n_symbols=16, alpha=1.3)   # tasks with Zipf frequencies
 run = toy.train(task, steps=1500, every=50)                       # a few minutes on a CPU
@@ -45,7 +48,7 @@ The same analysis on Pythia checkpoints is in [examples/quanta_pythia.py](exampl
 ## Writing an observable
 
 ```python
-from explorers import observable
+from explorers.core import observable
 import numpy as np
 
 @observable(reads=["hidden:3"], dims=("example",))
@@ -56,8 +59,8 @@ def layer3_norm(ctx):
 ## Development
 
 ```bash
-pip install -e ".[hf,dev]"
-pytest
+uv sync
+uv run pytest
 ```
 
 The tests train tiny models on a CPU and never download anything.
