@@ -1,0 +1,19 @@
+# Workspace root: one repository, several packages that depend only on explorers-core.
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "explorers-core[torch]",
+  "explorers-learning",
+  "explorers-populations",
+]
+
+[tool.uv.sources]
+explorers-core = { workspace = true }
+explorers-learning = { workspace = true }
+explorers-populations = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["packages/core/tests", "packages/learning/tests", "tests"]
