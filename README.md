@@ -14,12 +14,9 @@ PyPI: `machine-explorers` (planned) · `import explorers`
 - **Now: oversight of agent populations.** Agents run in populations that share tools, caches and channels, and they fail together. We build reproducible multi-agent scenarios and white-box monitors that read the models, not only their transcripts.
 - **Long term: a science of deep learning.** How training builds the mechanisms a model computes with, at the join of learning mechanics and mechanistic interpretability.
 
-The two meet at one question:
+The link between them is narrow, and we state it precisely: **monitors under training**.
 
-> **When can you trust a white-box monitor?**
-> When does the feature it reads form in training? Does that feature cause the behaviour? Does it stay after more training, or does training hide it?
-
-Oversight needs the answer. The science can give it. Both run on one stack, with one `Method` interface and one annotation schema.
+On a fixed model, you trust a monitor through evaluation and interpretability. Learning mechanics adds nothing there. But models are trained and retrained all the time. Then new questions appear: when does the feature a monitor reads form? Does the probe still work on the next checkpoint? Does training against the monitor hide the feature? These are questions about how representations change under gradient updates, which is what learning mechanics studies. Details in [ROADMAP.md](ROADMAP.md).
 
 ## Now: agent oversight
 
@@ -44,16 +41,16 @@ Interpretability mostly studies one final checkpoint, so it sees the result of l
 
 ### Research program
 
-The learning-mechanics community keeps a list of [open directions](https://learningmechanics.pub/openquestions/). We take the four that bear directly on trusting a monitor. Each experiment gives a result about monitors and a result for the science.
+The learning-mechanics community keeps a list of [open directions](https://learningmechanics.pub/openquestions/). We use its predictions as hypotheses about monitored features, and test them. We take the four that bear on monitors. Each experiment gives a result about monitors and a result for the science.
 
 | Open direction | Why it matters for oversight | First experiment |
 |---|---|---|
 | **4.** How do we formally define the features a network learns? | A probe assumes a behaviour such as hacking is a linear direction in activations. If that is false, probe monitors fail. | On the first scenario, compare a linear and a nonlinear probe for "hack" at the same false-positive rate. Steer activations along the probe direction and check whether the behaviour changes. |
-| **11.** Does learning decompose into a sequence of "units"? | If features form one by one, we can find when the monitored feature appears. | On a model organism, record probe accuracy at each checkpoint and look for a discrete jump. |
-| **12.** Does training proceed as a series of low-rank steps? | A step that adds the monitored feature, or hides it, may be visible in the weight updates. | At the same checkpoints, record the rank of each weight update and the steps in the loss. Check whether they line up with the probe jump. |
+| **11.** Does learning decompose into a sequence of "units"? | If features form one by one, we can find when the monitored feature appears. | During RL on hackable tasks, record probe accuracy and hack rate at each checkpoint. Check whether the probe moves before the behaviour. |
+| **12.** Does training proceed as a series of low-rank steps? | A step that adds the monitored feature, or hides it, may be visible in the weight updates. | At the same checkpoints, record the rank of the weight updates in the layers the probe reads. Check whether large updates predict a drop in probe accuracy. |
 | **10.** Do models trained differently learn similar representations? | If they do, a probe trained on one model can work on another, and monitors get cheaper and easier to trust. | Train a probe on model A. Apply it to model B (other seed or size) through a representation alignment. Measure the drop in detection. |
 
-The method: small tasks where the mechanism is known first (model organisms), then open models that publish their training checkpoints ([Pythia](https://arxiv.org/abs/2304.01373), [OLMo](https://arxiv.org/abs/2402.00838)). Grokking of modular addition is the tool check: its circuit is known, so the stack must recover it on one timeline before it measures anything unknown.
+Each dynamics signal is compared with a cheap baseline: re-evaluating the probe on labelled held-out data at each checkpoint. If the results hold, the same measurements move to model organisms where the mechanism is known (grokking of modular addition) and to open models with public training checkpoints ([Pythia](https://arxiv.org/abs/2304.01373), [OLMo](https://arxiv.org/abs/2402.00838)).
 
 ## The stack
 
@@ -116,12 +113,15 @@ results = exp.run()   # episodes -> annotations -> metrics against labels
 
 ## Roadmap
 
-1. **The first scenario.** Check first that models small enough for one GPU (0.6B to 4B) hack and coordinate at all. If they do not, move to larger open models.
-2. **v0.1:** the scenario format, the runtime, the first scenario, and on the same episodes: a text judge, a linear probe, a nonlinear probe, and a steering test along the probe direction (open direction 4).
-3. **Where monitors come from:** grokking as the tool check, then the monitored feature across training checkpoints: probe jumps against low-rank updates and loss steps (open directions 11 and 12).
-4. **Transfer:** a probe trained on one model, applied to another (open direction 10).
-5. **A second scenario family** (virtual marketplaces) and larger open-weight models.
-6. **A shared hub** for scenarios, runs, methods and results.
+The stages, with questions, deliverables and exit conditions, are in [ROADMAP.md](ROADMAP.md). In short:
+
+0. Do small models hack and coordinate in the first scenario?
+1. Read activations for recorded rollouts (a sidecar scorer).
+2. **v0.1:** text monitors, linear and nonlinear probes, and a steering test on the same episodes.
+3. **Monitors under training:** formation, drift and obfuscation of the monitored feature during RL. This is where the science enters.
+4. Transfer of a probe across models.
+5. The wider science, if stage 3 shows that dynamics signals add to the baseline.
+6. More scenario families and a shared hub.
 
 ## Open questions
 
