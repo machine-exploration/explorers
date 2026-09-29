@@ -41,7 +41,7 @@ Interpretability mostly studies one final checkpoint, so it sees the result of l
 
 ### Research program
 
-The learning-mechanics community keeps a list of [open directions](https://learningmechanics.pub/openquestions/). We use its predictions as hypotheses about monitored features, and test them. We take the four that bear on monitors. Each experiment gives a result about monitors and a result for the science.
+The learning-mechanics community keeps a list of [open directions](https://learningmechanics.pub/openquestions/). We use its predictions as hypotheses about monitored features, and test them. We also audit the core assumptions of interpretability that every monitor rests on (linear representability, locality, sparsity, compositionality), first on fixed models, then across training ([ROADMAP.md](ROADMAP.md)). We take the four that bear on monitors. Each experiment gives a result about monitors and a result for the science.
 
 | Open direction | Why it matters for oversight | First experiment |
 |---|---|---|
