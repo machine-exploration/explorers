@@ -12,7 +12,7 @@ each essential; one way to do each thing; data structures first.
 | **Stream** | `model.py`, `trace.py` | `residual[L]` (entering block L; `residual[n]` after the last block, before the final norm), `attn_out[L]`, `mlp_out[L]`. Same names on GPT-NeoX, Llama (Qwen, Mistral, OLMo) and GPT-2. |
 | **Trace** | `trace.py` | One forward pass. Reads and writes are declared inside `with model.trace(tokens)` and run on exit. |
 | **Op** | `ops.py` | What a write does to a stream (`Add`, `Set`, `Scale`, `Ablate`, `ProjectOut`) or what a read keeps (`Project`, `Norm`). Data: JSON round trip. |
-| **Measure** | `measures.py` | A named, versioned function of what a model computed. It declares its reads (`token_loss`, `logits:p`, `residual:L`, `weights`, `jacobian:L:skip`, `step`, …). |
+| **Measure** | `measures.py` | A named, versioned function of what a model computed. It declares its reads (`token_loss`, `logits:p`, `residual:L`, `weights`, `unembed`, `jacobian:L:skip[:target]`, `step`, …). |
 | **Study** | `study.py` | The unit of work: `read`, `write`, `measure`, `patch` over models × examples. `compute(store=...)` runs it. |
 
 Everything else supports these: `execute.py` (serves the reads of measures), `data.py` (examples

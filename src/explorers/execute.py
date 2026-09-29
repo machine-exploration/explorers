@@ -11,10 +11,11 @@ import xarray as xr
 from explorers.measures import Context, lens_positions, split_rows
 
 STREAMS = ("residual", "attn_out", "mlp_out")
+TARGETS = ("final", "penultimate")      # what a Jacobian differentiates: residual[n] or residual[n-1]
 
 
 def parse_reads(reads: set[str], n_layers: int):
-    """(streams {(name, layer)}, logit positions {p}, jacobians {(layer, skip)}, flags)."""
+    """(streams {(name, layer)}, logit positions {p}, jacobians {(layer, skip, target)})."""
     streams, positions, jac = set(), set(), set()
     for r in reads:
         head, _, rest = r.partition(":")
@@ -23,8 +24,11 @@ def parse_reads(reads: set[str], n_layers: int):
         elif head == "logits":
             positions.add(int(rest))
         elif head == "jacobian":
-            layer, skip = rest.split(":")
-            jac.add((int(layer), int(skip)))
+            layer, skip, *target = rest.split(":")
+            target = target[0] if target else "final"
+            if target not in TARGETS:
+                raise ValueError(f"unknown Jacobian target {target!r}; one of {TARGETS}")
+            jac.add((int(layer), int(skip), target))
         elif r not in ("weights", "token_loss", "unembed", "step"):
             raise ValueError(f"unknown read {r!r}")
     return streams, positions, jac
@@ -75,7 +79,9 @@ def serve(model, examples, reads: set[str], writes=(), batch_size: int = 16, dim
             raise ValueError("Jacobians are fitted on the unmodified model; they cannot be combined with writes")
         ctx.jacobian = jacobians(model, examples, jac, batch_size, dim_batch)
     if "unembed" in reads:
-        ctx.unembed_topk = unembed_topk(model)
+        ctx.unembed_apply = unembed_apply(model)
+        ctx.unembed_topk = lambda h, k: ctx.unembed_apply(h, lambda z: z.topk(k, dim=-1).indices)
+        ctx.unembed_matrix = unembed_matrix(model)
     return ctx
 
 
@@ -96,13 +102,14 @@ def label(da: xr.DataArray, examples) -> xr.DataArray:
 
 # --- the Jacobian lens -----------------------------------------------------------------------------
 
-def jacobians(model, examples, requests: set[tuple[int, int]], batch_size: int, dim_batch: int = 1) -> dict:
-    """J_L for each requested (layer, skip_first): the average Jacobian of residual:final with
-    respect to residual:L.
+def jacobians(model, examples, requests: set[tuple[int, int, str]], batch_size: int, dim_batch: int = 1) -> dict:
+    """J_L for each requested (layer, skip_first, target): the average Jacobian of the target
+    residual (`final`: residual[n], before the final norm; `penultimate`: residual[n-1], entering the
+    last block) with respect to residual:L.
 
     For each output dimension k, a one-hot cotangent at k is set at every lens position of every
     example at once, and one backward pass gives row k at every source position. By causality, the
-    row at source position p is sum_{t >= p} d final[t, k] / d residual_L[p]. Rows are averaged over
+    row at source position p is sum_{t >= p} d target[t, k] / d residual_L[p]. Rows are averaged over
     source positions and examples. Fitted on the rows where `split == "fit"`, if that column exists.
     `dim_batch` > 1 stacks that many copies of each batch, so one backward pass gives that many rows
     (same result, fewer passes, `dim_batch` times the activation memory). The graph is rooted at the
@@ -110,13 +117,18 @@ def jacobians(model, examples, requests: set[tuple[int, int]], batch_size: int, 
     """
     import torch
 
+    n_layers = model.n_layers
+    depth = {"final": n_layers, "penultimate": n_layers - 1}
+    for layer, _, target in requests:
+        if not 0 <= layer <= depth[target]:
+            raise ValueError(f"no Jacobian of {target} (residual[{depth[target]}]) with respect to residual[{layer}]")
     fit, _ = split_rows(examples)
     tokens = examples.tokens[fit]
     n, seq = tokens.shape
-    layers = sorted({layer for layer, _ in requests})
+    layers = sorted({layer for layer, _, _ in requests})
     d = model.d_model
     sums = {r: torch.zeros(d, d, dtype=torch.float64) for r in requests}
-    count = {skip: 0 for _, skip in requests}
+    count = {skip: 0 for _, skip, _ in requests}
     captured = {}
     hooks = [model.norm.register_forward_pre_hook(lambda _m, args: captured.__setitem__("h", args[0])),
              model.embed.register_forward_hook(lambda _m, _i, out: out.requires_grad_(True))]
@@ -126,44 +138,63 @@ def jacobians(model, examples, requests: set[tuple[int, int]], batch_size: int, 
             b = len(ids)
             with torch.enable_grad():
                 out = model.module(input_ids=ids.repeat(dim_batch, 1), output_hidden_states=True)
-                target = captured["h"]                                   # (dim_batch * b, seq, d)
+                outputs = {"final": captured["h"], "penultimate": out.hidden_states[n_layers - 1]}
                 sources = [out.hidden_states[layer] for layer in layers]
                 skips = sorted(count)
-                chunks = [(skip, k0) for skip in skips for k0 in range(0, d, dim_batch)]
-                cotangent = torch.zeros_like(target)
-                for c_idx, (skip, k0) in enumerate(chunks):
+                chunks = [(target, skip, k0) for target in sorted({t for _, _, t in requests})
+                          for skip in skips for k0 in range(0, d, dim_batch)
+                          if any((l, skip, target) in sums for l in layers)]
+                cotangent = torch.zeros_like(sources[0])
+                for c_idx, (target, skip, k0) in enumerate(chunks):
                     pos = torch.as_tensor(lens_positions(seq, skip), device=model.device)
                     rows = min(dim_batch, d - k0)
                     cotangent.zero_()
                     for j in range(rows):                                # copy j carries output dim k0 + j
                         cotangent[j * b:(j + 1) * b, pos, k0 + j] = 1.0
-                    grads = torch.autograd.grad(target, sources, cotangent, retain_graph=c_idx < len(chunks) - 1)
-                    for layer, g in zip(layers, grads):
-                        if (layer, skip) in sums:
-                            g = g[:, pos].double()
-                            for j in range(rows):
-                                sums[(layer, skip)][k0 + j] += g[j * b:(j + 1) * b].sum(dim=(0, 1)).cpu()
+                    wanted = [l for l in layers if (l, skip, target) in sums]
+                    grads = torch.autograd.grad(outputs[target], [sources[layers.index(l)] for l in wanted],
+                                                cotangent, retain_graph=c_idx < len(chunks) - 1)
+                    for layer, g in zip(wanted, grads):
+                        g = g[:, pos].double()
+                        for j in range(rows):
+                            sums[(layer, skip, target)][k0 + j] += g[j * b:(j + 1) * b].sum(dim=(0, 1)).cpu()
                 for skip in skips:
                     count[skip] += b * len(lens_positions(seq, skip))
     finally:
         for h in hooks:
             h.remove()
-    return {(layer, skip): (sums[(layer, skip)] / count[skip]).float().numpy() for layer, skip in requests}
+    return {r: (sums[r] / count[r[1]]).float().numpy() for r in requests}
 
 
-def unembed_topk(model, chunk: int = 4096):
-    """The model's own final norm + unembedding, returning top-k token ids, in chunks."""
+def unembed_apply(model, chunk: int = 2048):
+    """`apply(h, fn)`: the model's own final norm + unembedding on residuals h (..., d), in chunks on
+    the model's device; `fn` maps the logits (rows, vocab) to (rows, ...). Returns numpy."""
     import torch
 
     head = model.module.get_output_embeddings()
 
-    def topk(h: np.ndarray, k: int) -> np.ndarray:
+    def apply(h: np.ndarray, fn) -> np.ndarray:
         flat = np.asarray(h, dtype=np.float32).reshape(-1, h.shape[-1])
-        out = np.empty((len(flat), k), dtype=np.int64)
+        parts = []
         with torch.no_grad():
             for i in range(0, len(flat), chunk):
                 x = torch.as_tensor(flat[i:i + chunk], device=model.device, dtype=head.weight.dtype)
-                out[i:i + chunk] = head(model.norm(x)).float().topk(k, dim=-1).indices.cpu().numpy()
-        return out.reshape(*h.shape[:-1], k)
+                parts.append(fn(head(model.norm(x)).float()).cpu().numpy())
+        out = np.concatenate(parts) if parts else np.empty((0,))
+        return out.reshape(*h.shape[:-1], *out.shape[1:])
 
-    return topk
+    return apply
+
+
+def unembed_matrix(model) -> np.ndarray:
+    """(vocab, d): the linear part of final norm + unembedding, W_U diag(gain), with the norm's
+    mean-centering folded in for LayerNorm. Row t is the direction that raises token t's logit."""
+    import torch
+
+    w = model.module.get_output_embeddings().weight.detach().float().cpu().numpy()
+    gain = getattr(model.norm, "weight", None)
+    if gain is not None:
+        w = w * gain.detach().float().cpu().numpy()[None, :]
+    if isinstance(model.norm, torch.nn.LayerNorm):
+        w = w - w.mean(axis=1, keepdims=True)                   # W diag(g) (I - 11^T / d)
+    return w

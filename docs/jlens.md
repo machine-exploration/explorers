@@ -38,13 +38,29 @@ are averaged over source positions and examples. Cost: `d_model` backward passes
 |---|---|---|
 | `final` | read | `(example, position, d_model)` before the final norm |
 | `unembed` | read | `ctx.unembed_topk(h, k)`: top-k token ids of the model's own decoding |
-| `jacobian:<L>:<skip>` | read | `J_L`, `(d_model, d_model)` |
+| `jacobian:<L>:<skip>[:<target>]` | read | `J_L`, `(d_model, d_model)`; target `final` (default, `residual[n]`) or `penultimate` (`residual[n-1]`, the paper's default) |
+| `unembed` | read | also `ctx.unembed_apply(h, fn)` (a function of the logits, on the device) and `ctx.unembed_matrix` (vocab, d): `W_U diag(gain)`, with LayerNorm's centering folded in |
 | `measures.jacobian(L, skip_first)` | measure | the fitted `J_L`, stored like any result |
 | `measures.jlens_error(layers, skip_first)` | measure | per layer: how often the lens top-1 differs from the model's own top-1 at the same position |
 | `measures.logit_lens_error(layers, skip_first)` | measure | the same without transport (`J` = identity): the baseline |
+| `measures.jlens_dimension(layers, skip_first, target, share=0.9)` | measure | per layer: fraction of dimensions holding 90 % of the variance of the J-lens vectors `W J_L` |
+| `measures.jlens_cka(layers, skip_first, target)` | measure | (layer, layer2): linear CKA between the J-lens vector sets of two layers |
+| `measures.lens_kurtosis(layers, skip_first, target, lens)` | measure | per layer: median excess kurtosis of the readout logits; `lens="logit"` for the baseline |
+| `measures.lens_persistence(layers, skip_first, target, lens, offsets)` | measure | (layer, offset): log of how much more often the top-1 readout repeats D positions later in the same text than in the next text |
 
-Both error curves fall as a layer's content becomes what the model says, so they work directly
-with `analysis.onsets` across checkpoints.
+Both error curves fall as a layer's content becomes what the model says: they track the late
+"motor" regime. The four workspace signatures (Gurnee et al. 2026, section 4.1) track the
+workspace itself: dimension, kurtosis and persistence rise at its onset, and CKA shows the
+early / workspace / motor blocks. Dimension and CKA need only `W` and `J`; kurtosis and
+persistence read the evaluation rows. For `analysis.onsets` (which finds drops), pass the negated
+curve of a rising signature.
+
+Checks (`tests/test_jlens.py`), exact by construction: the Jacobian to the penultimate target
+matches the brute-force estimator, and at `L = n-1` it is the identity; `unembed_matrix` reproduces
+the logits through the norm; `dimension_fraction`, `linear_cka` (1 under orthogonal transforms and
+rescaling) and `repeat_rate` (0 for position-locked tokens) on constructed inputs; with `J` =
+identity every J-lens signature equals its logit-lens version, and kurtosis equals a direct
+computation.
 
 ## Validation
 
