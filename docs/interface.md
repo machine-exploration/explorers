@@ -16,7 +16,7 @@ each essential; one way to do each thing; data structures first.
 | **Study** | `study.py` | The unit of work: `read`, `write`, `measure`, `patch` over models × examples. `compute(store=...)` runs it. |
 
 Everything else supports these: `execute.py` (serves the reads of measures), `data.py` (examples
-identified by content), `state.py` (training runs as states and steps), `store.py` (results by
+identified by content; `episodes.py` replays agent rollouts, `docs/episodes.md`), `state.py` (training runs as states and steps), `store.py` (results by
 content key), `analysis.py` (onsets, rank correlation, AUROC; arrays only, never models), `toy.py`
 (tasks with known answers), `methods/` (probes, sparse autoencoders).
 

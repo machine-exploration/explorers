@@ -19,7 +19,7 @@ examples. Supporting modules: `data` (examples), `state` (training runs), `store
 needs the `populations` extra.
 """
 
-from explorers import analysis, measures, ops
+from explorers import analysis, episodes, measures, ops
 from explorers.data import Examples
 from explorers.methods import sae
 from explorers.model import (Model, ModelRef, adapters, archive_adapters, checkpoint, checkpoints, open, pick,
@@ -29,5 +29,5 @@ from explorers.trace import Trace, Value
 
 __version__ = "0.3.0.dev0"
 __all__ = ["Examples", "Model", "ModelRef", "Study", "Trace", "Value", "adapters", "analysis", "archive_adapters",
-           "checkpoint", "checkpoints",
+           "checkpoint", "checkpoints", "episodes",
            "measures", "open", "ops", "pick", "pythia_steps", "sae"]

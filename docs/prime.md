@@ -60,7 +60,7 @@ ds = ex.Study(refs, examples).measure(...).compute(store="runs/store")
 
 ## Not yet
 
-- The rollouts under `monitors/file/traces/` as `Examples` (the prompts and completions the run
-  actually trained on).
+(The rollouts under `monitors/file/traces/` are replayed as examples: docs/episodes.md.)
+
 - A measure hook inside the trainer (run a study on the live weights every N steps, no copy).
 - MoE expert adapters; `modules_to_save`.
