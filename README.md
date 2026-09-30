@@ -2,7 +2,7 @@
 
 > **White-box experimentation at scale**: observe, measure and intervene on the internal computation of models, across training and deployment.
 
-`explorers` is the open library of [Machine Exploration](https://github.com/machine-exploration/public), which is building the infrastructure for a science of intelligence. The vision is in the [org README](https://github.com/machine-exploration/public#readme), and the plan in the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
+`explorers` is the open library of [Machine Exploration](https://github.com/machine-exploration/public), which is building the infrastructure for a science of deep learning. The vision is in the [org README](https://github.com/machine-exploration/public#readme), and the plan in the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
 
 **Status: pre-alpha.** Nothing is released yet. The API will change.
 
