@@ -1,6 +1,6 @@
 # explorers
 
-> **White-box experimentation at scale**: observe, measure and intervene on the internal computation of models, across training and deployment.
+> **White-box experimentation at scale**: observe, measure and intervene on the internal computation of models, across evals, post-training and pretraining.
 
 `explorers` is the open library of [Machine Exploration](https://github.com/machine-exploration/public), which is building the infrastructure for a science of deep learning. The vision is in the [org README](https://github.com/machine-exploration/public#readme), and the plan in the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
 
@@ -32,11 +32,11 @@ study.patch(source=clean, metric=ex.measures.logit_diff(correct, wrong))
 ds = study.compute(store="runs/store")                  # an xarray Dataset indexed by step
 ```
 
-Six concepts: **Model** (named streams: `residual`, `attn_out`, `mlp_out`, the same on GPT-NeoX, Llama and GPT-2), **Stream**, **Trace** (one forward pass), **Op** (interventions and reductions as data), **Measure** (named, versioned functions of what a model computed), **Study**. The whole design fits on one page: [docs/interface.md](docs/interface.md). Other notes: [docs/jlens.md](docs/jlens.md) (the Jacobian lens), [docs/pythia.md](docs/pythia.md) (checkpoints), [docs/desk-spikes-2026-09-27.md](docs/desk-spikes-2026-09-27.md) (reading activations next to a trainer).
+Six concepts: **Model** (named streams: `residual`, `attn_out`, `mlp_out`, the same on GPT-NeoX, Llama and GPT-2), **Stream**, **Trace** (one forward pass), **Op** (interventions and reductions as data), **Measure** (named, versioned functions of what a model computed), **Study**. The whole design fits on one page: [docs/interface.md](docs/interface.md). Other notes: [docs/prime.md](docs/prime.md) (reading prime-rl runs), [docs/jlens.md](docs/jlens.md) (the Jacobian lens), [docs/pythia.md](docs/pythia.md) (checkpoints), [docs/desk-spikes-2026-09-27.md](docs/desk-spikes-2026-09-27.md) (reading activations next to a trainer).
 
 Supporting modules: `data` (examples identified by content), `state` (training runs), `store`, `analysis` (onsets, rank correlation, AUROC), `toy` (tasks with known answers), `methods` (probes, sparse autoencoders). The agent side, `explorers.populations` (scenarios, a multi-agent runtime through the pinned [verifiers](https://github.com/machine-exploration/verifiers) fork), is frozen behind the `populations` extra.
 
-Planned: a second backend (roadmap E3), then the planner and the open-source Runtime that executes studies at scale (S1, S2, R1). Research that uses the library lives in [mechanics](https://github.com/machine-exploration/mechanics).
+It runs on [Prime Intellect](https://github.com/PrimeIntellect-ai/prime-rl): `ex.archive_adapters` and `ex.adapters` read the LoRA adapters of a prime-rl run as checkpoints ([docs/prime.md](docs/prime.md)). Planned: episode replay from evals and RL runs, the concept-targeted lens, method scoring, a second backend. Research that uses the library lives in [mechanics](https://github.com/machine-exploration/mechanics).
 
 ## Development
 

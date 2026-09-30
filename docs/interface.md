@@ -33,8 +33,8 @@ A study executes one model at a time:
    computed once per batch) or attribution (one forward and one backward pass for all sites).
 4. **Step measures** (`update_norm`, `grad_norm`) run on the training steps of a `Trajectory`.
 
-Declare-then-execute is the property the Runtime needs: a whole study is known before it runs, so it
-can be planned. Results must not change when it is.
+Declare-then-execute is what scale needs: a whole study is known before it runs, so it can be
+sharded and planned. Results must not change when it is.
 
 ## Traces
 
@@ -95,6 +95,6 @@ tasks are learned first.
 ## Not yet
 
 - Padding and attention masks: traces take token ids of equal length.
-- A second backend (roadmap E3), and a planner (S2): tasks, run-from-layer, prefetching checkpoints.
+- Episode replay (eval and RL episodes as examples), the concept lens, a second backend, a planner.
 - The agent side (`populations`) is frozen behind its extra; it predates this design and keeps its own
   `Method` interface until the agent questions return.
