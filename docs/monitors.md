@@ -32,6 +32,8 @@ the full Jacobian; `concept_monitor` equals the direct projection; `probe_monito
 difference of means and ignores the labels of evaluation rows; `reduce_positions` and
 `detection_at_fpr` on constructed inputs, ties included.
 
+Compared against: docs/reward-hacking-probes.md (the Goodfire protocol). `concept_monitor(..., lens="logit")` is the same monitor with W[t] alone (nothing fitted), the baseline.
+
 Not yet: episode replay (episodes from `monitors/file/traces` of an eval or RL run as examples with
 their loss mask, docs/prime.md), the exact readout with the norm scale, aggregation over several
 layers, and running on 70B+ models (the Prime trainer backend).

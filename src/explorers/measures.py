@@ -407,17 +407,21 @@ def reduce_positions(scores: np.ndarray, mask: np.ndarray, how: str) -> np.ndarr
     return out
 
 
-def concept_monitor(layer: int, token_ids, skip_first: int = 16, target: str = "final", reduce: str = "max"):
+def concept_monitor(layer: int, token_ids, skip_first: int = 16, target: str = "final", reduce: str = "max",
+                    lens: str = "jacobian"):
     """Per example: the concept lens as a monitor, with no labels. Each token's score at a position
     is h . v_t, v_t = W[t] @ J_L (the linear part of its J-lens logit); the position's score is the
-    max over the tokens, reduced over positions."""
+    max over the tokens, reduced over positions. `lens="logit"` uses v_t = W[t] (the logit lens:
+    nothing fitted), the baseline."""
     ids = tuple(int(t) for t in token_ids)
     read = f"concept:{layer}:{skip_first}:{target}:{','.join(map(str, ids))}"
+    reads = [f"residual:{layer}"] + ([read] if lens == "jacobian" else ["unembed"])
+    name = f"{'concept' if lens == 'jacobian' else 'logit_concept'}_monitor_{layer}"
 
-    @measure(reads=[f"residual:{layer}", read], dims=("example",), name=f"concept_monitor_{layer}",
-             layer=layer, token_ids=ids, skip_first=skip_first, target=target, reduce=reduce)
+    @measure(reads=reads, dims=("example",), name=name, layer=layer, token_ids=ids, skip_first=skip_first,
+             target=target if lens == "jacobian" else None, reduce=reduce, lens=lens)
     def fn(ctx):
-        v = ctx.jacobian[(layer, skip_first, target, ids)]
+        v = ctx.jacobian[(layer, skip_first, target, ids)] if lens == "jacobian" else ctx.unembed_matrix[list(ids)]
         per_token = (ctx.stream("residual", layer) @ v.T).max(axis=-1)
         return reduce_positions(per_token, scored_positions(ctx.examples, skip_first), reduce)
     return fn

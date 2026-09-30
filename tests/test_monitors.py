@@ -44,6 +44,16 @@ def test_concept_monitor_is_the_projection_on_the_concept_rows():
     np.testing.assert_allclose(m(ctx).values, expected, rtol=1e-4, atol=1e-5)
 
 
+def test_logit_concept_monitor_uses_the_unembedding_rows():
+    model, examples = tiny_neox(), random_examples(n=4, seq=7)
+    m = measures.concept_monitor(1, [3, 11], skip_first=1, lens="logit")
+    ctx = serve(model, examples, set(m.reads), batch_size=2)
+    h = ctx.stream("residual", 1)[:, 1:6]
+    expected = (h @ unembed_matrix(model)[[3, 11]].T).max(axis=-1).max(axis=-1)
+    np.testing.assert_allclose(m(ctx).values, expected, rtol=1e-5, atol=1e-6)
+    assert m.name == "logit_concept_monitor_1" and not any(r.startswith("concept") for r in m.reads)
+
+
 def test_probe_monitor_fits_on_fit_rows_only():
     model = tiny_neox()
     tokens = random_examples(n=6, seq=7).tokens
