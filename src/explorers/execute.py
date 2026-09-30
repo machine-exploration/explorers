@@ -213,7 +213,7 @@ def unembed_matrix(model) -> np.ndarray:
     w = model.module.get_output_embeddings().weight.detach().float().cpu().numpy()
     gain = getattr(model.norm, "weight", None)
     if gain is not None:
-        w = w * gain.detach().float().cpu().numpy()[None, :]
+        w = w * (model.layout.norm_offset + gain.detach().float().cpu().numpy())[None, :]
     if isinstance(model.norm, torch.nn.LayerNorm):
         w = w - w.mean(axis=1, keepdims=True)                   # W diag(g) (I - 11^T / d)
     return w

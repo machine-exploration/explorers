@@ -38,15 +38,45 @@ def gpt2(seed=0):
     return ex.open(transformers.GPT2LMHeadModel(cfg))
 
 
+QWEN3_5_TEXT = dict(vocab_size=V, hidden_size=D, num_hidden_layers=4, intermediate_size=2 * D,
+                    layer_types=["linear_attention", "full_attention"] * 2, num_attention_heads=4,
+                    num_key_value_heads=2, head_dim=8, linear_num_key_heads=2, linear_num_value_heads=4,
+                    linear_key_head_dim=8, linear_value_head_dim=8, max_position_embeddings=32)
+
+
+def _perturb_norms(module):
+    """Qwen 3.5 norms scale by 1 + weight and start at weight = 0: move every gain off 1."""
+    with torch.no_grad():
+        for name, p in module.named_parameters():
+            if "norm" in name:
+                p.add_(0.5 * torch.randn_like(p))
+    return module
+
+
+def qwen3_5(seed=0):
+    """A hybrid (linear and full attention) Qwen 3.5 text model."""
+    torch.manual_seed(seed)
+    return ex.open(_perturb_norms(transformers.Qwen3_5ForCausalLM(transformers.Qwen3_5TextConfig(**QWEN3_5_TEXT))))
+
+
+def qwen3_5_vl(seed=0):
+    """The multimodal class Qwen 3.8 ships as: the text model sits under model.language_model."""
+    torch.manual_seed(seed)
+    cfg = transformers.Qwen3_5Config(text_config=QWEN3_5_TEXT, vision_config=dict(
+        depth=1, hidden_size=16, intermediate_size=32, num_heads=2, out_hidden_size=D))
+    return ex.open(_perturb_norms(transformers.Qwen3_5ForConditionalGeneration(cfg)))
+
+
 def tokens(n=4, seed=0):
     return np.random.default_rng(seed).integers(0, V, size=(n, SEQ))
 
 
 # --- E1: streams -------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("make", [neox, llama, gpt2])
+@pytest.mark.parametrize("make", [neox, llama, gpt2, qwen3_5, qwen3_5_vl])
 def test_residual_reads_match_the_model(make):
     model, ids = make(), tokens()
+    L = model.n_layers
     with model.trace(ids) as run:
         reads = [run.stream("residual").read(layer) for layer in range(L + 1)]
     with torch.no_grad():
@@ -57,15 +87,29 @@ def test_residual_reads_match_the_model(make):
     torch.testing.assert_close(model.unembed(reads[L].value), run.logits)
 
 
-@pytest.mark.parametrize("stream", ["attn_out", "mlp_out"])
-def test_sublayer_reads_match_hooks(stream):
-    model, ids = neox(), tokens()
-    part = model.layout.attn if stream == "attn_out" else model.layout.mlp
+def test_unembed_matrix_with_a_shifted_rms_gain():
+    """Qwen 3.5 norms compute x / rms(x) * (1 + weight): the readout is W diag(1 + weight) x / rms(x)."""
+    from explorers.execute import unembed_matrix
+
+    model = qwen3_5_vl()
+    x = torch.randn(5, model.d_model)
+    with torch.no_grad():
+        logits = model.unembed(x).numpy()
+    rms = torch.sqrt(x.pow(2).mean(dim=-1) + model.norm.eps).numpy()
+    np.testing.assert_allclose(x.numpy() @ unembed_matrix(model).T / rms[:, None], logits, rtol=1e-4, atol=1e-4)
+
+
+@pytest.mark.parametrize("make,stream,layer,part", [
+    (neox, "attn_out", 1, "attention"), (neox, "mlp_out", 1, "mlp"),
+    (qwen3_5, "attn_out", 0, "linear_attn"), (qwen3_5, "attn_out", 1, "self_attn"), (qwen3_5_vl, "mlp_out", 2, "mlp"),
+])
+def test_sublayer_reads_match_hooks(make, stream, layer, part):
+    model, ids = make(), tokens()
     seen = {}
-    h = getattr(model.blocks[1], part).register_forward_hook(
+    h = getattr(model.blocks[layer], part).register_forward_hook(
         lambda _m, _i, out: seen.__setitem__("x", (out[0] if isinstance(out, tuple) else out).detach()))
     with model.trace(ids) as run:
-        x = run.stream(stream).read(1, position=[2, 4])
+        x = run.stream(stream).read(layer, position=[2, 4])
     h.remove()
     torch.testing.assert_close(x.value, seen["x"][:, [2, 4]])
 

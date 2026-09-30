@@ -9,7 +9,7 @@ each essential; one way to do each thing; data structures first.
 | Concept | Module | What it is |
 |---|---|---|
 | **Model** | `model.py` | A network with named streams. `ex.open(repo, revision)`, `ex.checkpoints(repo, steps)` (lazy handles whose key is known before download), or `ex.adapters(base, path)` (a prime-rl run's LoRA adapters, merged at load; `docs/prime.md`). |
-| **Stream** | `model.py`, `trace.py` | `residual[L]` (entering block L; `residual[n]` after the last block, before the final norm), `attn_out[L]`, `mlp_out[L]`. Same names on GPT-NeoX, Llama (Qwen, Mistral, OLMo) and GPT-2. |
+| **Stream** | `model.py`, `trace.py` | `residual[L]` (entering block L; `residual[n]` after the last block, before the final norm), `attn_out[L]`, `mlp_out[L]`. Same names on GPT-NeoX, Llama (Qwen up to 3, Mistral, OLMo), GPT-2 and hybrid Qwen 3.5+ (`attn_out` is the block's linear or full attention). |
 | **Trace** | `trace.py` | One forward pass. Reads and writes are declared inside `with model.trace(tokens)` and run on exit. |
 | **Op** | `ops.py` | What a write does to a stream (`Add`, `Set`, `Scale`, `Ablate`, `ProjectOut`) or what a read keeps (`Project`, `Norm`). Data: JSON round trip. |
 | **Measure** | `measures.py` | A named, versioned function of what a model computed. It declares its reads (`token_loss`, `logits:p`, `residual:L`, `weights`, `unembed`, `jacobian:L:skip[:target]`, `concept:L:skip:target:ids`, `step`, …). Monitors (`concept_monitor`, `probe_monitor`) score one number per example (`docs/monitors.md`). |
@@ -76,7 +76,7 @@ sharded and planned. Results must not change when it is.
 
 ## Checks, exact by construction
 
-`tests/test_interface.py` and `tests/test_ops.py`, on tiny random GPT-NeoX, Llama and GPT-2 models
+`tests/test_interface.py` and `tests/test_ops.py`, on tiny random GPT-NeoX, Llama, GPT-2 and Qwen 3.5 models
 built locally, hold for any weights:
 
 | Example | Check |

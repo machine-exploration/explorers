@@ -40,7 +40,7 @@ are averaged over source positions and examples. Cost: `d_model` backward passes
 | `unembed` | read | `ctx.unembed_topk(h, k)`: top-k token ids of the model's own decoding |
 | `concept:<L>:<skip>:<target>:<ids>` | read | `W[ids] @ J_L`, (k, d): the concept lens, one backward pass per token (docs/monitors.md) |
 | `jacobian:<L>:<skip>[:<target>]` | read | `J_L`, `(d_model, d_model)`; target `final` (default, `residual[n]`) or `penultimate` (`residual[n-1]`, the paper's default) |
-| `unembed` | read | also `ctx.unembed_apply(h, fn)` (a function of the logits, on the device) and `ctx.unembed_matrix` (vocab, d): `W_U diag(gain)`, with LayerNorm's centering folded in |
+| `unembed` | read | also `ctx.unembed_apply(h, fn)` (a function of the logits, on the device) and `ctx.unembed_matrix` (vocab, d): `W_U diag(gain)`, with LayerNorm's centering folded in; the gain is `1 + weight` on Qwen 3.5+ norms |
 | `measures.jacobian(L, skip_first)` | measure | the fitted `J_L`, stored like any result |
 | `measures.jlens_error(layers, skip_first)` | measure | per layer: how often the lens top-1 differs from the model's own top-1 at the same position |
 | `measures.logit_lens_error(layers, skip_first)` | measure | the same without transport (`J` = identity): the baseline |

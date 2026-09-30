@@ -24,15 +24,25 @@ from pathlib import Path
 @dataclass(frozen=True)
 class Layout:
     blocks: str
-    attn: str
+    attn: str          # the attention sublayer; "a|b" when blocks differ (hybrid models): the first present
     mlp: str
     norm: str
     embed: str
+    norm_offset: float = 0.0     # the final norm's gain is norm_offset + weight (1 for Qwen 3.5: x̂ (1 + w))
+    model_type: str | None = None    # match only a model whose config has this model_type
 
 
-#: Known layouts, tried in order. Llama covers Qwen, Mistral, OLMo and most recent decoders.
+_QWEN3_5 = dict(attn="self_attn|linear_attn", mlp="mlp", norm_offset=1.0)
+
+#: Known layouts, tried in order. Llama covers Qwen up to 3, Mistral, OLMo and most recent decoders.
+#: Qwen 3.5 and later (3.6, 3.8) are hybrid (linear and full attention blocks) and their norms scale
+#: by 1 + weight; the multimodal classes hold the text model under `model.language_model`.
 LAYOUTS = {
     "gpt_neox": Layout("gpt_neox.layers", "attention", "mlp", "gpt_neox.final_layer_norm", "gpt_neox.embed_in"),
+    "qwen3_5": Layout("model.language_model.layers", norm="model.language_model.norm",
+                      embed="model.language_model.embed_tokens", model_type="qwen3_5", **_QWEN3_5),
+    "qwen3_5_text": Layout("model.layers", norm="model.norm", embed="model.embed_tokens",
+                           model_type="qwen3_5_text", **_QWEN3_5),
     "llama": Layout("model.layers", "self_attn", "mlp", "model.norm", "model.embed_tokens"),
     "gpt2": Layout("transformer.h", "attn", "mlp", "transformer.ln_f", "transformer.wte"),
 }
@@ -49,7 +59,10 @@ def _get(obj, path: str):
 
 
 def find_layout(module) -> Layout:
+    model_type = getattr(getattr(module, "config", None), "model_type", None)
     for layout in LAYOUTS.values():
+        if layout.model_type is not None and layout.model_type != model_type:
+            continue
         if all(_get(module, p) is not None for p in (layout.blocks, layout.norm, layout.embed)):
             return layout
     raise ValueError(f"unknown architecture {type(module).__name__}; known layouts: {', '.join(LAYOUTS)}")
@@ -103,8 +116,9 @@ class Model:
             raise ValueError(f"{stream}[{layer}] out of range: layers 0..{top}")
         if stream == "residual":
             return (self.norm if layer == self.n_layers else self.blocks[layer]), "pre"
-        part = self.layout.attn if stream == "attn_out" else self.layout.mlp
-        return getattr(self.blocks[layer], part), "out"
+        parts = (self.layout.attn if stream == "attn_out" else self.layout.mlp).split("|")
+        block = self.blocks[layer]
+        return next(getattr(block, p) for p in parts if hasattr(block, p)), "out"
 
     def tokens(self, inputs):
         """Token ids as a (batch, seq) LongTensor on the model's device. Accepts a string, a list of
