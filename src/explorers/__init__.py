@@ -22,10 +22,12 @@ needs the `populations` extra.
 from explorers import analysis, measures, ops
 from explorers.data import Examples
 from explorers.methods import sae
-from explorers.model import Model, ModelRef, checkpoint, checkpoints, open, pick, pythia_steps
+from explorers.model import (Model, ModelRef, adapters, archive_adapters, checkpoint, checkpoints, open, pick,
+                             pythia_steps)
 from explorers.study import Study
 from explorers.trace import Trace, Value
 
 __version__ = "0.3.0.dev0"
-__all__ = ["Examples", "Model", "ModelRef", "Study", "Trace", "Value", "analysis", "checkpoint", "checkpoints",
+__all__ = ["Examples", "Model", "ModelRef", "Study", "Trace", "Value", "adapters", "analysis", "archive_adapters",
+           "checkpoint", "checkpoints",
            "measures", "open", "ops", "pick", "pythia_steps", "sae"]

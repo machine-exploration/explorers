@@ -26,7 +26,7 @@ def hub(monkeypatch):
     """A fake hub: `open(name, revision)` builds a tiny model seeded by the step in the revision."""
     loads = []
 
-    def fake_open(name, revision=None, device="cpu", dtype=None, tokenizer=True):
+    def fake_open(name, revision=None, device="cpu", dtype=None, tokenizer=True, adapter=None):
         loads.append(revision)
         return explorers.model.Model(tiny(int(revision.removeprefix("step"))), name=name, revision=revision,
                                      device=device)

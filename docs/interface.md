@@ -8,7 +8,7 @@ each essential; one way to do each thing; data structures first.
 
 | Concept | Module | What it is |
 |---|---|---|
-| **Model** | `model.py` | A network with named streams. `ex.open(repo, revision)` or `ex.checkpoints(repo, steps)` (lazy handles whose key is known before download). |
+| **Model** | `model.py` | A network with named streams. `ex.open(repo, revision)`, `ex.checkpoints(repo, steps)` (lazy handles whose key is known before download), or `ex.adapters(base, path)` (a prime-rl run's LoRA adapters, merged at load; `docs/prime.md`). |
 | **Stream** | `model.py`, `trace.py` | `residual[L]` (entering block L; `residual[n]` after the last block, before the final norm), `attn_out[L]`, `mlp_out[L]`. Same names on GPT-NeoX, Llama (Qwen, Mistral, OLMo) and GPT-2. |
 | **Trace** | `trace.py` | One forward pass. Reads and writes are declared inside `with model.trace(tokens)` and run on exit. |
 | **Op** | `ops.py` | What a write does to a stream (`Add`, `Set`, `Scale`, `Ablate`, `ProjectOut`) or what a read keeps (`Project`, `Norm`). Data: JSON round trip. |

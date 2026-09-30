@@ -12,8 +12,13 @@ be named the same way whatever the architecture:
 torch and transformers are imported only when a model is opened.
 """
 
+import builtins
+import functools
 import hashlib
+import json
+import shutil
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -145,9 +150,10 @@ def _dtype(dtype):
 
 
 def open(name_or_module, revision: str | None = None, device: str = "cpu", dtype=None,
-         tokenizer=True) -> Model:
+         tokenizer=True, adapter: str | None = None) -> Model:
     """Open a model: a Hugging Face repo id (with an optional revision, e.g. a Pythia `step1000`),
-    or an already-built module. `dtype` is a torch dtype or its name ("float16", "bfloat16")."""
+    or an already-built module. `dtype` is a torch dtype or its name ("float16", "bfloat16").
+    `adapter` is a LoRA adapter directory, merged into the weights (docs/prime.md)."""
     dtype = _dtype(dtype)
     if not isinstance(name_or_module, str):
         module = name_or_module if dtype is None else name_or_module.to(dtype)
@@ -157,26 +163,31 @@ def open(name_or_module, revision: str | None = None, device: str = "cpu", dtype
 
     kw = {"dtype" if int(transformers.__version__.split(".")[0]) >= 5 else "torch_dtype": dtype}
     module = AutoModelForCausalLM.from_pretrained(name_or_module, revision=revision, **kw)
+    if adapter is not None:
+        merge_lora(module, adapter)
     tok = AutoTokenizer.from_pretrained(name_or_module, revision=revision) if tokenizer is True else tokenizer
     return Model(module, tokenizer=tok, name=name_or_module, revision=revision, device=device)
 
 
 @dataclass(frozen=True)
 class ModelRef:
-    """A model that is not loaded yet: a repo id and a revision. Its key is known without
-    downloading anything, so studies over checkpoints can be hashed and cached before they run."""
+    """A model that is not loaded yet: a repo id, a revision, and optionally a LoRA adapter. Its key
+    is known without downloading the model, so studies over checkpoints can be hashed and cached
+    before they run."""
     name: str
     revision: str | None = None
     step: int | None = None
     device: str = "cpu"
     dtype: object = None
+    adapter: str | None = None
 
     @property
     def key(self) -> str:
-        return f"{self.name}@{self.revision}"
+        base = f"{self.name}@{self.revision}"
+        return base if self.adapter is None else f"{base}+{_file_hash(Path(self.adapter) / ADAPTER_WEIGHTS)}"
 
     def load(self) -> Model:
-        return open(self.name, revision=self.revision, device=self.device, dtype=self.dtype)
+        return open(self.name, revision=self.revision, device=self.device, dtype=self.dtype, adapter=self.adapter)
 
 
 def checkpoint(name: str, revision: str | None = None, device: str = "cpu", dtype=None) -> ModelRef:
@@ -188,6 +199,82 @@ def checkpoints(name: str, steps, device: str = "cpu", dtype=None, revision_form
     `ex.checkpoints("EleutherAI/pythia-70m", steps=[0, 1000, 143000])`. Revisions default to
     `step<N>`; the study coordinate is the step."""
     return [ModelRef(name, revision_format.format(s), step=int(s), device=device, dtype=dtype) for s in steps]
+
+
+# --- LoRA adapters of a prime-rl run (docs/prime.md) -----------------------------------------
+
+ADAPTER_WEIGHTS = "adapter_model.safetensors"
+ADAPTER_CONFIG = "adapter_config.json"
+
+
+def _file_hash(path: Path) -> str:
+    st = path.stat()
+    return _hash_contents(str(path), st.st_mtime_ns, st.st_size)
+
+
+@functools.lru_cache(maxsize=None)
+def _hash_contents(path: str, mtime_ns: int, size: int) -> str:
+    h = hashlib.sha256()
+    with builtins.open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()[:16]
+
+
+def merge_lora(module, adapter) -> None:
+    """Merge a LoRA adapter directory into `module` in place: `W <- W + (alpha / r) B A` for every
+    adapted linear layer, computed in float32. Every adapter tensor must land on a linear layer of
+    `module`; anything else raises, so a partly applied adapter cannot pass silently."""
+    import torch
+    from safetensors.torch import load_file
+
+    adapter = Path(adapter)
+    config = json.loads((adapter / ADAPTER_CONFIG).read_text())
+    if config.get("modules_to_save"):
+        raise NotImplementedError(f"adapter trains whole modules too: {config['modules_to_save']}")
+    scale = config["lora_alpha"] / config["r"]
+    tensors = load_file(adapter / ADAPTER_WEIGHTS)
+    pairs: dict[str, dict[str, torch.Tensor]] = {}
+    for key, t in tensors.items():
+        name, _, part = key.removeprefix("base_model.model.").rpartition(".lora_")
+        if part not in ("A.weight", "B.weight"):
+            raise ValueError(f"not a LoRA tensor: {key}")
+        pairs.setdefault(name, {})[part[0]] = t
+    with torch.no_grad():
+        for name, ab in pairs.items():
+            layer = module.get_submodule(name)
+            if not isinstance(layer, torch.nn.Linear) or set(ab) != {"A", "B"}:
+                raise NotImplementedError(f"cannot merge the adapter of {name} ({type(layer).__name__})")
+            w = layer.weight
+            delta = scale * (ab["B"].to(w.device, torch.float32) @ ab["A"].to(w.device, torch.float32))
+            w.copy_((w.float() + delta).to(w.dtype))
+
+
+def adapters(name: str, path, revision: str | None = None, device: str = "cpu", dtype=None) -> list[ModelRef]:
+    """One lazy handle per `step_<N>/` adapter directory under `path` (an archive written by
+    `archive_adapters`), on base model `name`. The study coordinate is the step."""
+    steps = sorted((int(d.name.removeprefix("step_")), d) for d in Path(path).glob("step_*")
+                   if (d / ADAPTER_WEIGHTS).exists())
+    return [ModelRef(name, revision, step=n, device=device, dtype=dtype, adapter=str(d)) for n, d in steps]
+
+
+def archive_adapters(run_dir, dest) -> list[int]:
+    """Copy each finished LoRA broadcast of a prime-rl run (`<run_dir>/broadcasts/step_<N>/`, done
+    when `.finished` exists) to `<dest>/step_<N>/`, unless already there. prime-rl keeps only the
+    last two broadcasts, so run this beside the trainer. Returns the steps copied."""
+    dest = Path(dest)
+    copied = []
+    for d in sorted(Path(run_dir, "broadcasts").glob("step_*")):
+        if not (d / ".finished").exists() or not (d / ADAPTER_WEIGHTS).exists() or (dest / d.name).exists():
+            continue
+        tmp = dest / f".{d.name}.tmp"
+        shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True)
+        for f in (ADAPTER_WEIGHTS, ADAPTER_CONFIG):
+            shutil.copy2(d / f, tmp / f)
+        tmp.rename(dest / d.name)
+        copied.append(int(d.name.removeprefix("step_")))
+    return copied
 
 
 # --- checkpoint schedules (docs/pythia.md) ---------------------------------------------------
