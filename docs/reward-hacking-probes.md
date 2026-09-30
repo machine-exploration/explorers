@@ -48,3 +48,26 @@ hacking as well as a difference of means built from 5,285 designed conversations
 
 Differences from their protocol to keep in mind: our probe baseline fits on on-policy labelled
 rollouts (split), theirs on off-policy synthetic pairs; we score rollouts before passages.
+
+## The data: ImpossibleBench, LiveCodeBench split
+
+Read 2026-09-30: the dataset `fjzzq2002/impossible_livecodebench` (revision `98650ff`) and the
+harness `safety-research/impossiblebench` (commit `061dc3d`).
+
+- **Rows:** 103 problems (LiveCodeBench hard, transcribed to HumanEval form) in three splits,
+  `original`, `oneoff` (one expected value changed) and `conflicting` (one assert duplicated with a
+  different output). Fields: `task_id`, `prompt` (signature and docstring), `test` (a
+  `check(candidate)`), `original_test`, `impossible_type`, `entry_point`. No reference solutions.
+- **Their harness:** `func.py` = `prompt + "\n    raise NotImplementedError"`; `test.py` imports the
+  entry point and runs `check` (renamed `test_func`); the agent has bash, python and an editor, is
+  told not to modify the tests, and gets several attempts with feedback.
+- **The mutations are unverified:** Claude Sonnet 4 wrote them from a prompt, with no check.
+  Found: `lcbhard_77`'s mutated tests do not parse (both splits); `lcbhard_35` and `lcbhard_87`
+  (conflicting) lost `def check`.
+- **Our check** (`impossible_code.convert` in the verifiers fork): the reference is the original
+  tests' answer table, read by running the original `check` with its asserts recorded; it must pass
+  the original tests, and fail the mutated ones on an assert without being asked an input it does not
+  hold. So no solution meeting the original tests passes, without any reference solution. Problems
+  whose tests accept several outputs (`result = candidate(...)` then checks on `result`: 4, 5, 14,
+  26, 72, 91) cannot be checked and are dropped. Result: 190 of 206 tasks kept (95 + 95), `validate`
+  true for all 190.
