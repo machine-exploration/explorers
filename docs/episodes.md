@@ -74,3 +74,7 @@ Done 2026-09-30 on `Qwen/Qwen3.8-27B` (bf16, one RTX PRO 6000 96 GB), vLLM 0.30.
   the bf16 difference between vLLM's kernels and transformers' through 64 layers. Load 34 s, replay
   43 s. Install `flash-linear-attention` for the linear-attention layers (the reference fallback is
   slow).
+- **Timeouts lose the episode:** an episode that exceeds `--env.timeout.episode` is recorded with
+  `traces: []` and a `TimeoutError`: nothing to replay or label. Bound rollouts by turns and tokens
+  instead. And size concurrency to the KV cache: 32 concurrent rollouts of ~12k tokens on a
+  366k-token cache kept it ≥95% full, 28 requests waiting, ~400 tok/s shared (2026-09-30 run).
