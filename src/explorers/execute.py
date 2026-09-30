@@ -15,7 +15,7 @@ TARGETS = ("final", "penultimate")      # what a Jacobian differentiates: residu
 
 
 def parse_reads(reads: set[str], n_layers: int):
-    """(streams {(name, layer)}, logit positions {p}, jacobians {(layer, skip, target)})."""
+    """(streams {(name, layer)}, logit positions {p}, jacobians {(layer, skip, target[, token ids])})."""
     streams, positions, jac = set(), set(), set()
     for r in reads:
         head, _, rest = r.partition(":")
@@ -29,6 +29,11 @@ def parse_reads(reads: set[str], n_layers: int):
             if target not in TARGETS:
                 raise ValueError(f"unknown Jacobian target {target!r}; one of {TARGETS}")
             jac.add((int(layer), int(skip), target))
+        elif head == "concept":
+            layer, skip, target, ids = rest.split(":")
+            if target not in TARGETS:
+                raise ValueError(f"unknown Jacobian target {target!r}; one of {TARGETS}")
+            jac.add((int(layer), int(skip), target, tuple(int(t) for t in ids.split(","))))
         elif r not in ("weights", "token_loss", "unembed", "step"):
             raise ValueError(f"unknown read {r!r}")
     return streams, positions, jac
@@ -102,33 +107,45 @@ def label(da: xr.DataArray, examples) -> xr.DataArray:
 
 # --- the Jacobian lens -----------------------------------------------------------------------------
 
-def jacobians(model, examples, requests: set[tuple[int, int, str]], batch_size: int, dim_batch: int = 1) -> dict:
-    """J_L for each requested (layer, skip_first, target): the average Jacobian of the target
-    residual (`final`: residual[n], before the final norm; `penultimate`: residual[n-1], entering the
-    last block) with respect to residual:L.
+def jacobians(model, examples, requests: set[tuple], batch_size: int, dim_batch: int = 1) -> dict:
+    """Rows of J_L for each request: the average Jacobian of the target residual (`final`:
+    residual[n], before the final norm; `penultimate`: residual[n-1], entering the last block) with
+    respect to residual:L.
 
-    For each output dimension k, a one-hot cotangent at k is set at every lens position of every
-    example at once, and one backward pass gives row k at every source position. By causality, the
-    row at source position p is sum_{t >= p} d target[t, k] / d residual_L[p]. Rows are averaged over
-    source positions and examples. Fitted on the rows where `split == "fit"`, if that column exists.
-    `dim_batch` > 1 stacks that many copies of each batch, so one backward pass gives that many rows
-    (same result, fewer passes, `dim_batch` times the activation memory). The graph is rooted at the
-    embedding output, so frozen models work.
+    A request (layer, skip_first, target) asks for the whole (d, d) J_L. A request (layer,
+    skip_first, target, token_ids) asks only for W[token_ids] @ J_L, (k, d), where W is
+    `unembed_matrix`: row i is the direction in residual:L that raises token i's J-lens logit (the
+    concept lens: k backward passes instead of d, whatever the width).
+
+    For each row r of the basis (a one-hot for the whole J, W[t] for a concept), the cotangent r is
+    set at every lens position of every example at once, and one backward pass gives r @ J at every
+    source position. By causality, the row at source position p is sum_{t >= p} r . d target[t] /
+    d residual_L[p]. Rows are averaged over source positions and examples. Fitted on the rows where
+    `split == "fit"`, if that column exists. `dim_batch` > 1 stacks that many copies of each batch,
+    so one backward pass gives that many rows (same result, fewer passes, `dim_batch` times the
+    activation memory). The graph is rooted at the embedding output, so frozen models work.
     """
     import torch
 
     n_layers = model.n_layers
     depth = {"final": n_layers, "penultimate": n_layers - 1}
-    for layer, _, target in requests:
+    for layer, _, target, *_ in requests:
         if not 0 <= layer <= depth[target]:
             raise ValueError(f"no Jacobian of {target} (residual[{depth[target]}]) with respect to residual[{layer}]")
     fit, _ = split_rows(examples)
     tokens = examples.tokens[fit]
     n, seq = tokens.shape
-    layers = sorted({layer for layer, _, _ in requests})
+    layers = sorted({r[0] for r in requests})
     d = model.d_model
-    sums = {r: torch.zeros(d, d, dtype=torch.float64) for r in requests}
-    count = {skip: 0 for _, skip, _ in requests}
+    concept_ids = sorted({r[3] for r in requests if len(r) == 4})
+    bases = {None: None}
+    if concept_ids:
+        w = unembed_matrix(model)
+        bases.update({ids: torch.as_tensor(w[list(ids)], device=model.device) for ids in concept_ids})
+    size = {key: d if key is None else len(key) for key in bases}
+    key_of = lambda r: r[3] if len(r) == 4 else None                     # noqa: E731
+    sums = {r: torch.zeros(size[key_of(r)], d, dtype=torch.float64) for r in requests}
+    count = {r[1]: 0 for r in requests}
     captured = {}
     hooks = [model.norm.register_forward_pre_hook(lambda _m, args: captured.__setitem__("h", args[0])),
              model.embed.register_forward_hook(lambda _m, _i, out: out.requires_grad_(True))]
@@ -140,25 +157,27 @@ def jacobians(model, examples, requests: set[tuple[int, int, str]], batch_size: 
                 out = model.module(input_ids=ids.repeat(dim_batch, 1), output_hidden_states=True)
                 outputs = {"final": captured["h"], "penultimate": out.hidden_states[n_layers - 1]}
                 sources = [out.hidden_states[layer] for layer in layers]
-                skips = sorted(count)
-                chunks = [(target, skip, k0) for target in sorted({t for _, _, t in requests})
-                          for skip in skips for k0 in range(0, d, dim_batch)
-                          if any((l, skip, target) in sums for l in layers)]
+                groups = sorted({(r[2], r[1], key_of(r)) for r in requests}, key=str)
+                chunks = [(target, skip, key, k0) for target, skip, key in groups
+                          for k0 in range(0, size[key], dim_batch)]
                 cotangent = torch.zeros_like(sources[0])
-                for c_idx, (target, skip, k0) in enumerate(chunks):
+                for c_idx, (target, skip, key, k0) in enumerate(chunks):
                     pos = torch.as_tensor(lens_positions(seq, skip), device=model.device)
-                    rows = min(dim_batch, d - k0)
+                    rows = min(dim_batch, size[key] - k0)
                     cotangent.zero_()
-                    for j in range(rows):                                # copy j carries output dim k0 + j
-                        cotangent[j * b:(j + 1) * b, pos, k0 + j] = 1.0
-                    wanted = [l for l in layers if (l, skip, target) in sums]
-                    grads = torch.autograd.grad(outputs[target], [sources[layers.index(l)] for l in wanted],
+                    for j in range(rows):                                # copy j carries basis row k0 + j
+                        if key is None:
+                            cotangent[j * b:(j + 1) * b, pos, k0 + j] = 1.0
+                        else:
+                            cotangent[j * b:(j + 1) * b, pos, :] = bases[key][k0 + j].to(cotangent.dtype)
+                    wanted = [r for r in requests if (r[2], r[1], key_of(r)) == (target, skip, key)]
+                    grads = torch.autograd.grad(outputs[target], [sources[layers.index(r[0])] for r in wanted],
                                                 cotangent, retain_graph=c_idx < len(chunks) - 1)
-                    for layer, g in zip(wanted, grads):
+                    for r, g in zip(wanted, grads):
                         g = g[:, pos].double()
                         for j in range(rows):
-                            sums[(layer, skip, target)][k0 + j] += g[j * b:(j + 1) * b].sum(dim=(0, 1)).cpu()
-                for skip in skips:
+                            sums[r][k0 + j] += g[j * b:(j + 1) * b].sum(dim=(0, 1)).cpu()
+                for skip in count:
                     count[skip] += b * len(lens_positions(seq, skip))
     finally:
         for h in hooks:

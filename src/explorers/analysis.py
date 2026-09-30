@@ -119,6 +119,19 @@ def auroc(y: np.ndarray, scores: np.ndarray) -> float | None:
     return float((ranks[y].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
+def detection_at_fpr(y: np.ndarray, scores: np.ndarray, fpr: float) -> float | None:
+    """Fraction of positives flagged at the threshold where at most `fpr` of negatives are flagged
+    (flagged: score strictly above the threshold). None when a class is empty."""
+    y = np.asarray(y, dtype=bool)
+    scores = np.asarray(scores, dtype=float)
+    neg, pos = np.sort(scores[~y])[::-1], scores[y]
+    if not len(neg) or not len(pos):
+        return None
+    k = int(np.floor(fpr * len(neg) + 1e-12))                # negatives allowed above the threshold
+    threshold = neg[k] if k < len(neg) else -np.inf
+    return float(np.mean(pos > threshold))
+
+
 def cluster_bootstrap(y: np.ndarray, scores: np.ndarray, groups: list[str],
                       stat: Callable[[np.ndarray, np.ndarray], float | None] = auroc,
                       resamples: int = 1000, seed: int = 0) -> tuple[float, float] | None:

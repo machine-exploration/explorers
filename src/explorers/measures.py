@@ -16,6 +16,8 @@ Reads:
   "jacobian:<L>:<skip>[:<target>]"  (d, d) average Jacobian of the target residual (final, the
                            default, or penultimate) with respect to residual:L (docs/jlens.md);
                            fitted on the unmodified model
+  "concept:<L>:<skip>:<target>:<ids>"  (k, d) rows W[ids] @ J_L for token ids "12,40,7": the
+                           concept lens, one backward pass per token instead of d
   "step"                   a training step: weights before and after, and the gradient
 """
 
@@ -371,4 +373,69 @@ def lens_persistence(layers, skip_first: int = 16, target: str = "final", lens: 
                 for l in layers]
         return xr.DataArray(np.array(vals), dims=("layer", "offset"),
                             coords={"layer": list(layers), "offset": list(offsets)})
+    return fn
+
+
+# --- monitors: one direction per layer, scored per example (docs/monitors.md) ---------------------
+#
+# A monitor reads residual:L, projects every scored position on a direction, and reduces the
+# positions of an example to one score. Scored positions: the loss mask when the examples carry one
+# (the model's own turns in a replayed episode), else from `skip_first` to the one before last.
+# The concept monitor's directions come from the J-lens without labels; the probe's from labels.
+
+REDUCTIONS = ("max", "mean", "last")
+
+
+def scored_positions(examples, skip_first: int) -> np.ndarray:
+    """(example, position) bool: the positions a monitor scores."""
+    n, seq = examples.tokens.shape
+    if examples.loss_mask is not None:
+        return np.asarray(examples.loss_mask, dtype=bool)
+    mask = np.zeros((n, seq), dtype=bool)
+    mask[:, lens_positions(seq, skip_first)] = True
+    return mask
+
+
+def reduce_positions(scores: np.ndarray, mask: np.ndarray, how: str) -> np.ndarray:
+    """(example, position) scores to one per example over the masked positions; NaN if none."""
+    if how not in REDUCTIONS:
+        raise ValueError(f"unknown reduction {how!r}; one of {REDUCTIONS}")
+    out = np.full(len(scores), np.nan)
+    for i, (row, m) in enumerate(zip(scores, mask)):
+        if m.any():
+            out[i] = row[m].max() if how == "max" else row[m].mean() if how == "mean" else row[np.flatnonzero(m)[-1]]
+    return out
+
+
+def concept_monitor(layer: int, token_ids, skip_first: int = 16, target: str = "final", reduce: str = "max"):
+    """Per example: the concept lens as a monitor, with no labels. Each token's score at a position
+    is h . v_t, v_t = W[t] @ J_L (the linear part of its J-lens logit); the position's score is the
+    max over the tokens, reduced over positions."""
+    ids = tuple(int(t) for t in token_ids)
+    read = f"concept:{layer}:{skip_first}:{target}:{','.join(map(str, ids))}"
+
+    @measure(reads=[f"residual:{layer}", read], dims=("example",), name=f"concept_monitor_{layer}",
+             layer=layer, token_ids=ids, skip_first=skip_first, target=target, reduce=reduce)
+    def fn(ctx):
+        v = ctx.jacobian[(layer, skip_first, target, ids)]
+        per_token = (ctx.stream("residual", layer) @ v.T).max(axis=-1)
+        return reduce_positions(per_token, scored_positions(ctx.examples, skip_first), reduce)
+    return fn
+
+
+def probe_monitor(layer: int, label: str = "label", skip_first: int = 16, reduce: str = "max"):
+    """Per example: a difference-of-means probe as a monitor. The direction is the mean over
+    positive fit examples of their mean scored activation, minus the same for negatives (fit rows:
+    `split == "fit"`, else every row). Every example is then scored like the concept monitor."""
+    from explorers.methods.probes import DiffMeans
+
+    @measure(reads=[f"residual:{layer}"], dims=("example",), name=f"probe_monitor_{layer}",
+             layer=layer, label=label, skip_first=skip_first, reduce=reduce)
+    def fn(ctx):
+        h = ctx.stream("residual", layer)
+        mask = scored_positions(ctx.examples, skip_first)
+        fit, _ = split_rows(ctx.examples)
+        means = np.stack([row[m].mean(axis=0) for row, m in zip(h, mask)])
+        probe = DiffMeans().fit(means[fit], np.asarray(ctx.examples.meta[label])[fit])
+        return reduce_positions(h @ probe.direction, mask, reduce)
     return fn
