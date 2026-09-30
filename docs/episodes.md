@@ -51,3 +51,26 @@ replay to the same log-probabilities (`-token_loss` at the sampled positions). O
 same check compares with the recorded values: within 1e-4 (the record's rounding) plus the
 numerical difference between the inference server and the replaying model (bf16), and at the
 sampling temperature (the recorded values are at temperature 1 only if the run sampled at 1).
+
+## Recording token ids with vLLM, and the check on a real model
+
+Done 2026-09-30 on `Qwen/Qwen3.8-27B` (bf16, one RTX PRO 6000 96 GB), vLLM 0.30.0, verifiers fork
+`18f2608b`, explorers `ef27b0d`.
+
+- **Server:** `vllm serve <model> --enable-scale-out` mounts `/inference/v1/generate` (token ids in
+  and out); without the flag the route answers 404. Qwen 3.5+ are hybrid (linear-attention state per
+  sequence): `--max-num-seqs` must fit the state blocks (256 on 96 GB at 32k context; the default
+  1024 refuses to start). An image without `nvcc` cannot JIT FlashInfer's sampler:
+  `VLLM_USE_FLASHINFER_SAMPLER=0`.
+- **Client:** `vf-eval` with `[client] type = "train"`, `base_url = "http://localhost:8000/v1"`, a
+  non-Prime `api_key_var`, and `[client.renderer] name = "qwen3.8"` (the renderer map has the
+  model, with tool calls). The default agent runtime is Prime sandboxes (`type = "prime"`, needs a
+  Prime login); `type = "subprocess"` runs tools on the host, unisolated.
+- **Record:** `vf-eval` writes `traces.jsonl` (the full episode, full-precision logprobs); its nodes
+  have the fields `replay` reads (`parent` is omitted on roots, where it is None).
+- **Check:** 3 `impossible_code` rollouts (2 hacks), 2,762 sampled tokens, replayed with
+  `ex.open(hf, device="cuda")` and `token_loss`: |replayed − recorded| logprob median 0.0003, mean
+  0.013, p99 0.12, max 0.32. Aligned tokens (a shift would give large gaps everywhere); the rest is
+  the bf16 difference between vLLM's kernels and transformers' through 64 layers. Load 34 s, replay
+  43 s. Install `flash-linear-attention` for the linear-attention layers (the reference fallback is
+  slow).
