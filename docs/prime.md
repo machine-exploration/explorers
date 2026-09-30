@@ -1,10 +1,12 @@
-# Prime Intellect as the runtime
+# Prime Intellect: the first training-stack integration
 
 Durable note on how a `prime-rl` run lays out what `explorers` reads. Read at
 `PrimeIntellect-ai/prime-rl` commit `d5f29c072a6731a17897f5aed661e0b0e6053d8c` (cloned outside the
 repository, 2026-09-30, not imported).
 
 ## The split
+
+Explorers works with any training stack through thin adapters; this note covers the first one.
 
 | Layer | Who | Role |
 |---|---|---|

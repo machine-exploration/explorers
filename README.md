@@ -36,7 +36,7 @@ Six concepts: **Model** (named streams: `residual`, `attn_out`, `mlp_out`, the s
 
 Supporting modules: `data` (examples identified by content), `state` (training runs), `store`, `analysis` (onsets, rank correlation, AUROC), `toy` (tasks with known answers), `methods` (probes, sparse autoencoders). The agent side, `explorers.populations` (scenarios, a multi-agent runtime through the pinned [verifiers](https://github.com/machine-exploration/verifiers) fork), is frozen behind the `populations` extra.
 
-It runs on [Prime Intellect](https://github.com/PrimeIntellect-ai/prime-rl): `ex.archive_adapters` and `ex.adapters` read the LoRA adapters of a prime-rl run as checkpoints ([docs/prime.md](docs/prime.md)). Planned: episode replay from evals and RL runs, the concept-targeted lens, method scoring, and a Prime backend that runs studies on 70B+ models through prime-rl's trainer (sharded forward passes for probes, backward passes for lens fits). Research that uses the library lives in [mechanics](https://github.com/machine-exploration/mechanics).
+It works with any training stack through thin adapters. Today it reads Hugging Face checkpoints and, as the first integration, [prime-rl](https://github.com/PrimeIntellect-ai/prime-rl) runs: `ex.archive_adapters` and `ex.adapters` read a run's LoRA adapters as checkpoints ([docs/prime.md](docs/prime.md)). Planned: episode replay from evals and RL runs, the concept-targeted lens, method scoring, and a Prime backend that runs studies on 70B+ models through prime-rl's trainer (sharded forward passes for probes, backward passes for lens fits). Research that uses the library lives in [mechanics](https://github.com/machine-exploration/mechanics).
 
 ## Development
 
