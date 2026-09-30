@@ -7,7 +7,7 @@ The org vision and roadmap live in [machine-exploration/public](https://github.c
 - `explorers` (this repo): the open-source library, one package `explorers` (`src/explorers`). Six concepts: Model, Stream, Trace, Op, Measure, Study; the design is one page, `docs/interface.md`, and must stay one page. One way to do each thing: `Study` is the only entry point, `execute.serve` the only place that runs a model for measures. Remove before adding. `import explorers` must not import torch. `explorers.populations` (the agent side) is frozen behind the `populations` extra.
 - `mechanics`: the research program (experiments, datasets, papers). It depends on `explorers` and holds no library code.
 - `public`: vision, roadmap, and later research notes and results.
-- `verifiers`, `vllm`: pinned forks of upstream projects. No local changes.
+- `verifiers`, `vllm`: pinned forks of upstream projects. No local changes, except our own environments in the verifiers fork, under `environments/` (first: `impossible_code`, the Monitor Arena's first track).
 
 Library rules: every check of a method is exact by construction where possible (see `docs/interface.md`); every study must give the same result on every supported backend within a stated tolerance; speed claims are measured against existing tools (NNsight, TransformerLens) on the same study. TransformerLens and NNsight may be backends, behind an optional extra, imported only in their backend module.
 
