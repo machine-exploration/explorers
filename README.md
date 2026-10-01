@@ -32,11 +32,11 @@ study.patch(source=clean, metric=ex.measures.logit_diff(correct, wrong))
 ds = study.compute(store="runs/store")                  # an xarray Dataset indexed by step
 ```
 
-Six concepts: **Model** (named streams: `residual`, `attn_out`, `mlp_out`, the same on GPT-NeoX, Llama, GPT-2 and Qwen 3.5+), **Stream**, **Trace** (one forward pass), **Op** (interventions and reductions as data), **Measure** (named, versioned functions of what a model computed), **Study**. The whole design fits on one page: [docs/interface.md](docs/interface.md). Other notes: [docs/prime.md](docs/prime.md) (reading prime-rl runs), [docs/jlens.md](docs/jlens.md) (the Jacobian lens), [docs/pythia.md](docs/pythia.md) (checkpoints), [docs/desk-spikes-2026-09-27.md](docs/desk-spikes-2026-09-27.md) (reading activations next to a trainer).
+Six concepts: **Model** (named streams: `residual`, `attn_out`, `mlp_out`, the same on GPT-NeoX, Llama, GPT-2 and Qwen 3.5+), **Stream**, **Trace** (one forward pass), **Op** (interventions and reductions as data), **Measure** (named, versioned functions of what a model computed), **Study**. The whole design fits on one page: [docs/interface.md](docs/interface.md). Other notes: [docs/monitors.md](docs/monitors.md) (concept, logit-lens and probe monitors, detection at a matched false-positive rate), [docs/episodes.md](docs/episodes.md) (replaying agent rollouts exactly), [docs/reward-hacking-probes.md](docs/reward-hacking-probes.md) (the reward-hacking protocol), [docs/prime.md](docs/prime.md) (reading prime-rl runs), [docs/jlens.md](docs/jlens.md) (the Jacobian lens), [docs/pythia.md](docs/pythia.md) (checkpoints), [docs/desk-spikes-2026-09-27.md](docs/desk-spikes-2026-09-27.md) (reading activations next to a trainer).
 
 Supporting modules: `data` (examples identified by content), `state` (training runs), `store`, `analysis` (onsets, rank correlation, AUROC), `toy` (tasks with known answers), `methods` (probes, sparse autoencoders). The agent side, `explorers.populations` (scenarios, a multi-agent runtime through the pinned [verifiers](https://github.com/machine-exploration/verifiers) fork), is frozen behind the `populations` extra.
 
-It works with any training stack through thin adapters. Today it reads Hugging Face checkpoints and, as the first integration, [prime-rl](https://github.com/PrimeIntellect-ai/prime-rl) runs: `ex.archive_adapters` and `ex.adapters` read a run's LoRA adapters as checkpoints ([docs/prime.md](docs/prime.md)). Planned: episode replay from evals and RL runs, the concept-targeted lens, method scoring, and a Prime backend that runs studies on 70B+ models through prime-rl's trainer (sharded forward passes for probes, backward passes for lens fits). Research that uses the library lives in [mechanics](https://github.com/machine-exploration/mechanics).
+It works with any training stack through thin adapters. Today it reads Hugging Face checkpoints and, as the first integration, [prime-rl](https://github.com/PrimeIntellect-ai/prime-rl) runs: `ex.archive_adapters` and `ex.adapters` read a run's LoRA adapters as checkpoints ([docs/prime.md](docs/prime.md)), and `ex.episodes.replay` turns the rollouts of an eval or an RL run into examples, token for token ([docs/episodes.md](docs/episodes.md)). Monitors are measures: `concept_monitor` (a Jacobian-lens direction from words, no labels), its logit-lens baseline, and `probe_monitor` (difference of means), scored with `analysis.detection_at_fpr` and `analysis.auroc` ([docs/monitors.md](docs/monitors.md)). Planned: the executor on Modal and the rest of the architecture below. Research that uses the library lives in [mechanics](https://github.com/machine-exploration/mechanics).
 
 ## Where it is going
 
@@ -67,7 +67,7 @@ Extras for users: `explorers[torch]` (models and traces), `explorers[populations
 ## Rules for scenarios
 
 - **Contained:** scenarios that push agents to hack run with no network, no shared cache and no path between episodes.
-- **Not published yet:** such scenarios and their traces are published only after the publication rules are settled.
+- **Not published yet:** such scenarios and their traces are published only after the publication rules are settled. One exception: [`impossible_code`](https://github.com/machine-exploration/verifiers/tree/main/environments/impossible_code), a port of ImpossibleBench, whose tasks are already public.
 - **Audit isolation:** oversight monitors run outside the trainer's process and write to an append-only store that the reward code cannot read.
 
 ## Contributing
