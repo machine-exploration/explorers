@@ -38,6 +38,23 @@ Supporting modules: `data` (examples identified by content), `state` (training r
 
 It works with any training stack through thin adapters. Today it reads Hugging Face checkpoints and, as the first integration, [prime-rl](https://github.com/PrimeIntellect-ai/prime-rl) runs: `ex.archive_adapters` and `ex.adapters` read a run's LoRA adapters as checkpoints ([docs/prime.md](docs/prime.md)). Planned: episode replay from evals and RL runs, the concept-targeted lens, method scoring, and a Prime backend that runs studies on 70B+ models through prime-rl's trainer (sharded forward passes for probes, backward passes for lens fits). Research that uses the library lives in [mechanics](https://github.com/machine-exploration/mechanics).
 
+## Where it is going
+
+*A design, not yet built; the interface above is what exists today.* The direction: white-box methods become programs, and the model becomes the machine they run on. A method is written once against five primitives (eval, read, project, intervene, vector-Jacobian product) and lifted with `vmap` over the checkpoints of a run and over a set of inputs. It is traced into a graph, optimized (shared forward passes, fused projections, reductions on the GPU, a run's adapters batched on one resident base) and executed locally, on Modal, or in a customer's cluster.
+
+```python
+@ex.method
+def hack_score(m, x, words=("cheat", "hack", "hardcode")):
+    v = m.concept(words, layer=20)                    # one backward pass per word, no labels
+    return m.residual[20](x).project(v).max("pos")
+
+R = ex.vmap(hack_score, over=run.steps)(evalset)     # lazy
+R.explain()                                          # the plan and its predicted cost
+R.compute(on=ex.Modal(gpu="H100"))
+```
+
+Two rules carry over from today: **execution invariance** (no optimization may change a result beyond a stated tolerance; every run carries its replay error) and **cost is part of the result** (FLOPs, bytes, GPU-seconds and dollars come back with every run). Activations are never stored by default: their lineage, the weights hash and the token ids, recomputes them exactly. The full architecture and the ideas it borrows (Modal, Tinker, JAX, Spark, Postgres, vLLM, Snowflake, Bazel) are in the [org README](https://github.com/machine-exploration/public#architecture).
+
 ## Development
 
 ```bash
