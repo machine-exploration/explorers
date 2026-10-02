@@ -1,14 +1,14 @@
 # explorers
 
-> **White-box experimentation at scale**: observe, measure and intervene on the internal computation of models, across evals, post-training and pretraining.
+> **The instrument for a science of deep learning:** read a model's internals and change them, across every checkpoint of a run, with every result reproducible. Next: train, read and intervene in the same loop.
 
-`explorers` is the open library of [Machine Exploration](https://github.com/machine-exploration/public), which is building the infrastructure for a science of deep learning. The vision is in the [org README](https://github.com/machine-exploration/public#readme), and the plan in the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
+`explorers` is the open-source instrument of [Machine Exploration](https://github.com/machine-exploration/public), which is building a science of deep learning: the laws by which training creates the computation inside a model, joining learning mechanics (the dynamics of training) with mechanistic interpretability (what training produces). The experiments live in [mechanics](https://github.com/machine-exploration/mechanics); they climb a ladder from small models pretrained on designed data to Pythia, fine-tuning and reinforcement learning. The vision is in the [org README](https://github.com/machine-exploration/public#readme), the plan in the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
 
 **Status: pre-alpha.** Nothing is released yet. The API will change.
 
 ---
 
-## The interface
+## Today: read models and the checkpoints of a run
 
 ```python
 import explorers as ex
@@ -38,9 +38,9 @@ Supporting modules: `data` (examples identified by content), `state` (training r
 
 It works with any training stack through thin adapters. Today it reads Hugging Face checkpoints and, as the first integration, [prime-rl](https://github.com/PrimeIntellect-ai/prime-rl) runs: `ex.archive_adapters` and `ex.adapters` read a run's LoRA adapters as checkpoints ([docs/prime.md](docs/prime.md)), and `ex.episodes.replay` turns the rollouts of an eval or an RL run into examples, token for token ([docs/episodes.md](docs/episodes.md)). Monitors are measures: `concept_monitor` (a Jacobian-lens direction from words, no labels), its logit-lens baseline, and `probe_monitor` (difference of means), scored with `analysis.detection_at_fpr` and `analysis.auroc` ([docs/monitors.md](docs/monitors.md)). Planned: the training API below, with Modal as its first backend. Research that uses the library lives in [mechanics](https://github.com/machine-exploration/mechanics).
 
-## Where it is going
+## Next: train, read and intervene in one loop
 
-*A design, not yet built; the interface above is what exists today.* Explorers becomes a Tinker-like API for the science of deep learning: train a model, read it and change it in the same loop. During training the activations are computed anyway, so reading them costs almost nothing.
+*A design, not yet built; the section above is what exists today.* Explorers becomes a Tinker-like API for the science of deep learning: train a model, read it and change it in the same loop. During training the activations are computed anyway, so reading them costs almost nothing.
 
 ```python
 m = ex.model(ex.configs.tiny(layers=4, d=256), seed=0, init_scale=0.5)
