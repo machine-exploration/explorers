@@ -36,24 +36,31 @@ Six concepts: **Model** (named streams: `residual`, `attn_out`, `mlp_out`, the s
 
 Supporting modules: `data` (examples identified by content), `state` (training runs), `store`, `analysis` (onsets, rank correlation, AUROC), `toy` (tasks with known answers), `methods` (probes, sparse autoencoders). The agent side, `explorers.populations` (scenarios, a multi-agent runtime through the pinned [verifiers](https://github.com/machine-exploration/verifiers) fork), is frozen behind the `populations` extra.
 
-It works with any training stack through thin adapters. Today it reads Hugging Face checkpoints and, as the first integration, [prime-rl](https://github.com/PrimeIntellect-ai/prime-rl) runs: `ex.archive_adapters` and `ex.adapters` read a run's LoRA adapters as checkpoints ([docs/prime.md](docs/prime.md)), and `ex.episodes.replay` turns the rollouts of an eval or an RL run into examples, token for token ([docs/episodes.md](docs/episodes.md)). Monitors are measures: `concept_monitor` (a Jacobian-lens direction from words, no labels), its logit-lens baseline, and `probe_monitor` (difference of means), scored with `analysis.detection_at_fpr` and `analysis.auroc` ([docs/monitors.md](docs/monitors.md)). Planned: the executor on Modal and the rest of the architecture below. Research that uses the library lives in [mechanics](https://github.com/machine-exploration/mechanics).
+It works with any training stack through thin adapters. Today it reads Hugging Face checkpoints and, as the first integration, [prime-rl](https://github.com/PrimeIntellect-ai/prime-rl) runs: `ex.archive_adapters` and `ex.adapters` read a run's LoRA adapters as checkpoints ([docs/prime.md](docs/prime.md)), and `ex.episodes.replay` turns the rollouts of an eval or an RL run into examples, token for token ([docs/episodes.md](docs/episodes.md)). Monitors are measures: `concept_monitor` (a Jacobian-lens direction from words, no labels), its logit-lens baseline, and `probe_monitor` (difference of means), scored with `analysis.detection_at_fpr` and `analysis.auroc` ([docs/monitors.md](docs/monitors.md)). Planned: the training API below, with Modal as its first backend. Research that uses the library lives in [mechanics](https://github.com/machine-exploration/mechanics).
 
 ## Where it is going
 
-*A design, not yet built; the interface above is what exists today.* The direction: white-box methods become programs, and the model becomes the machine they run on. A method is written once against five primitives (eval, read, project, intervene, vector-Jacobian product) and lifted with `vmap` over the checkpoints of a run and over a set of inputs. It is traced into a graph, optimized (shared forward passes, fused projections, reductions on the GPU, a run's adapters batched on one resident base) and executed locally, on Modal, or in a customer's cluster.
+*A design, not yet built; the interface above is what exists today.* Explorers becomes a Tinker-like API for the science of deep learning: train a model, read it and change it in the same loop. During training the activations are computed anyway, so reading them costs almost nothing.
 
 ```python
-@ex.method
-def hack_score(m, x, words=("cheat", "hack", "hardcode")):
-    v = m.concept(words, layer=20)                    # one backward pass per word, no labels
-    return m.residual[20](x).project(v).max("pos")
+m = ex.model(ex.configs.tiny(layers=4, d=256), seed=0, init_scale=0.5)
+for step, batch in env.batches():                                  # data order recorded exactly
+    out = m.forward_backward(batch, reads={"residual[*]": ex.project(V)}, do=None)
+    m.optim_step()
 
-R = ex.vmap(hack_score, over=run.steps)(evalset)     # lazy
-R.explain()                                          # the plan and its predicted cost
-R.compute(on=ex.Modal(gpu="H100"))
+@ex.experiment(sizes=[1, 2, 4], seeds=range(5), init_scale=[0.1, 1.0])
+def onset_law(m, env):
+    return ex.train(m, env, steps=20_000, every=100, measure=[per_task_accuracy, readability])
+
+R = onset_law.run(on=ex.Modal())                                   # 30 runs in parallel
 ```
 
-Two rules carry over from today: **execution invariance** (no optimization may change a result beyond a stated tolerance; every run carries its replay error) and **cost is part of the result** (FLOPs, bytes, GPU-seconds and dollars come back with every run). Activations are never stored by default: their lineage, the weights hash and the token ids, recomputes them exactly. The full architecture and the ideas it borrows (Modal, Tinker, JAX, Spark, Postgres, vLLM, Snowflake, Bazel) are in the [org README](https://github.com/machine-exploration/public#architecture).
+- **Primitives:** `model`, `forward_backward(reads=, do=)`, `optim_step`, `sample`, `stream` (one model's activations fed to another training loop, nothing stored), `save`/`load`, and `@experiment` over a grid of sizes, seeds and checkpoints.
+- **Environments** in Prime Intellect's format (data in a recorded order plus a rubric), read through an adapter so the core does not import verifiers.
+- **Backends:** Local for tests, Modal first. Small models ship their whole loop to the backend; large ones take one call per primitive on a resident model.
+- **Rules that carry over:** the same experiment gives the same result on every backend within a stated tolerance; every result reproduces from config, seed, data order and code version; cost comes back with every run.
+
+The first experiment it serves is the onset law in [mechanics](https://github.com/machine-exploration/mechanics); the plan is O1 in the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
 
 ## Development
 
