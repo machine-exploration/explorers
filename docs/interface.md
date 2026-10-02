@@ -68,12 +68,12 @@ sharded and planned. Results must not change when it is.
 - Weights are not a seventh concept: a Model holds them and a Measure reads them (`weights`, `step`).
   Planned: uniform weight names across layouts (`attn.W_Q[L]`, `mlp.W_in[L]`, …), checked exactly.
 
-## Sweeps and backends
+## Client and runtimes
 
-`sweep.py`: `@ex.sweep(**grid)` turns a function `f(check, **params)` into a Sweep, one Run per grid
-point. A run's key hashes the sweep's name, the function's source and its parameters; stored runs are
-never recomputed. Nothing heavy runs locally: `check()` runs the first point on the CPU with
-`check=True` (a sliver of the data), and `run(on=backend)` sends every run to GPU workers.
+`runtime.py`: a Job is data (an entrypoint, JSON arguments, the code version, resources), so runtimes
+are swappable. A Client sends jobs to a Runtime (`submit`, `status`, `logs`, `result`, `cancel`,
+artifacts by key). `LocalRuntime` runs each job in a CPU subprocess through the same path a GPU runtime
+takes; `tests/test_runtime.py` is the conformance suite every runtime passes. Real runs go to GPU workers.
 
 ## Checks, exact by construction
 
@@ -95,6 +95,6 @@ The Jacobian lens has its own checks (docs/jlens.md); the toy quanta result is a
 ## Not yet
 
 - Padding and attention masks: traces take token ids of equal length.
-- The Modal backend (GPU workers for sweeps), training primitives in the loop, a planner.
+- The Modal runtime (GPU workers), training primitives in the loop, a planner.
 - The agent side (`populations`) is frozen behind its extra; it predates this design and keeps its own
   `Method` interface until the agent questions return.

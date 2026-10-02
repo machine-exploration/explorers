@@ -14,8 +14,8 @@
 Concepts: a Model has named streams (residual, attn_out, mlp_out); a trace reads and writes them in
 one forward pass; `ops` are interventions and reductions as data; `measures` are named, versioned
 functions of what a model computed; an Experiment runs reads, writes, measures and patching over models ×
-examples; a Sweep runs one function over a grid of parameters, checked on the CPU and sent to GPU
-workers. Supporting modules: `data` (examples), `state` (training runs), `store`, `analysis`, `toy`
+examples; a Client sends jobs to a Runtime (LocalRuntime on the CPU checks the contract; GPU
+runtimes run the real jobs). Supporting modules: `data` (examples), `state` (training runs), `store`, `analysis`, `toy`
 (tasks with known answers), `methods` (probes, sparse autoencoders). The agent side, `populations`,
 needs the `populations` extra.
 """
@@ -26,10 +26,10 @@ from explorers.methods import sae
 from explorers.model import (Model, ModelRef, adapters, archive_adapters, checkpoint, checkpoints, open, pick,
                              pythia_steps)
 from explorers.experiment import Experiment
-from explorers.sweep import Backend, Run, Sweep, sweep
+from explorers.runtime import Client, Job, LocalRuntime, Resources, Runtime
 from explorers.trace import Trace, Value
 
 __version__ = "0.3.0.dev0"
-__all__ = ["Backend", "Examples", "Experiment", "Model", "ModelRef", "Run", "Sweep", "Trace", "Value", "adapters",
-           "analysis", "archive_adapters", "checkpoint", "checkpoints", "episodes", "measures", "open", "ops", "pick",
-           "pythia_steps", "sae", "sweep"]
+__all__ = ["Client", "Examples", "Experiment", "Job", "LocalRuntime", "Model", "ModelRef", "Resources", "Runtime",
+           "Trace", "Value", "adapters", "analysis", "archive_adapters", "checkpoint", "checkpoints", "episodes",
+           "measures", "open", "ops", "pick", "pythia_steps", "sae"]

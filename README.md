@@ -40,7 +40,7 @@ It works with any training stack through thin adapters. Today it reads Hugging F
 
 ## Next: train, read and intervene in one loop
 
-*A design, not yet built; the section above is what exists today.* Explorers becomes a Tinker-like API for the science of deep learning: train a model, read it and change it in the same loop. During training the activations are computed anyway, so reading them costs almost nothing.
+*A design, not yet built, except where marked; the section above is what exists today.* Explorers becomes a Tinker-like API for the science of deep learning: train a model, read it and change it in the same loop. During training the activations are computed anyway, so reading them costs almost nothing.
 
 ```python
 m = ex.model(ex.configs.tiny(layers=4, d=256), seed=0, init_scale=0.5)
@@ -48,21 +48,20 @@ for step, batch in env.batches():                                  # data order 
     out = m.forward_backward(batch, reads={"residual[*]": ex.project(V)}, do=None)
     m.optim_step()
 
-@ex.sweep(size=[1, 2, 4], seed=range(5), init_scale=[0.1, 1.0])
-def onset_law(check, size, seed, init_scale):
-    m = ex.model(ex.configs.tiny(scale=size), seed=seed, init_scale=init_scale)
-    return ex.train(m, planted_tasks(sliver=check), steps=100 if check else 20_000, every=100,
-                    measure=[per_task_accuracy, readability])
+client = ex.Client(ex.LocalRuntime())                  # CPU, a subprocess: checks the job and the contract
+client.run("experiments/q2_onset_law/train.py:main", size=1, seed=0, init_scale=0.1, steps=100)
 
-onset_law.check()                     # one grid point, on the CPU, on a sliver of the data
-R = onset_law.run(on=ex.Modal())      # 30 runs on GPU workers; stored runs are never recomputed
+client = ex.Client(ModalRuntime())                      # GPU workers, same contract (next)
+jobs = [client.submit("experiments/q2_onset_law/train.py:main", ex.Resources(gpu="A100"),
+                      size=n, seed=s, init_scale=i, steps=20_000)
+        for n in (1, 2, 4) for s in range(5) for i in (0.1, 1.0)]       # 30 jobs in parallel
 ```
 
-- **Primitives:** `model`, `forward_backward(reads=, do=)`, `optim_step`, `sample`, `stream` (one model's activations fed to another training loop, nothing stored), `save`/`load`, and `@sweep` over a grid of sizes, seeds and checkpoints.
+- **Primitives:** `model`, `forward_backward(reads=, do=)`, `optim_step`, `sample`, `stream` (one model's activations fed to another training loop, nothing stored), and `save`/`load`.
 - **Environments** in Prime Intellect's format (data in a recorded order plus a rubric), read through an adapter so the core does not import verifiers.
-- **Sweeps and backends:** `@ex.sweep` is built: a grid of runs keyed by content, checked on the CPU, sent to a backend. Locally only the check runs; full runs go to GPU workers, Modal first. Small models ship their whole loop to the backend; large ones take one call per primitive on a resident model.
-- **Fast iteration:** activations cached once when an experiment reuses them, sweeps in one line, warm GPUs while you iterate, only changed grid points recomputed, results streamed back while runs go, a smoke mode before every full run, resume for long jobs.
-- **Rules that carry over:** the same experiment gives the same result on every backend within a stated tolerance; every result reproduces from config, seed, data order and code version; cost comes back with every run.
+- **Client and runtimes** (built): a job is data (entrypoint, JSON arguments, code version, resources); a `Client` sends it to a `Runtime`. `LocalRuntime` runs it in a CPU subprocess through the same path a GPU runtime takes, which checks the contract; every runtime passes the same conformance suite. Real runs go to GPU workers, Modal first.
+- **Fast iteration:** activations cached once when an experiment reuses them, a grid of jobs as a plain loop over `submit`, warm GPUs while you iterate, only changed jobs recomputed, results streamed back while runs go, a CPU check on `LocalRuntime` before every GPU run, resume for long jobs.
+- **Rules that carry over:** the same job gives the same result on every runtime within a stated tolerance; every result reproduces from config, seed, data order and code version; cost comes back with every run.
 
 The first experiment it serves is [`glp-activation`](https://github.com/machine-exploration/mechanics/tree/main/experiments/glp-activation) in mechanics, a generative model of activations fitted across training; the plan is O1 in the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
 
