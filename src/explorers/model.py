@@ -186,7 +186,7 @@ def open(name_or_module, revision: str | None = None, device: str = "cpu", dtype
 @dataclass(frozen=True)
 class ModelRef:
     """A model that is not loaded yet: a repo id, a revision, and optionally a LoRA adapter. Its key
-    is known without downloading the model, so studies over checkpoints can be hashed and cached
+    is known without downloading the model, so experiments over checkpoints can be hashed and cached
     before they run."""
     name: str
     revision: str | None = None
@@ -211,7 +211,7 @@ def checkpoint(name: str, revision: str | None = None, device: str = "cpu", dtyp
 def checkpoints(name: str, steps, device: str = "cpu", dtype=None, revision_format: str = "step{}") -> list[ModelRef]:
     """Lazy handles for the checkpoints of a suite, e.g. Pythia:
     `ex.checkpoints("EleutherAI/pythia-70m", steps=[0, 1000, 143000])`. Revisions default to
-    `step<N>`; the study coordinate is the step."""
+    `step<N>`; the experiment coordinate is the step."""
     return [ModelRef(name, revision_format.format(s), step=int(s), device=device, dtype=dtype) for s in steps]
 
 
@@ -266,7 +266,7 @@ def merge_lora(module, adapter) -> None:
 
 def adapters(name: str, path, revision: str | None = None, device: str = "cpu", dtype=None) -> list[ModelRef]:
     """One lazy handle per `step_<N>/` adapter directory under `path` (an archive written by
-    `archive_adapters`), on base model `name`. The study coordinate is the step."""
+    `archive_adapters`), on base model `name`. The experiment coordinate is the step."""
     steps = sorted((int(d.name.removeprefix("step_")), d) for d in Path(path).glob("step_*")
                    if (d / ADAPTER_WEIGHTS).exists())
     return [ModelRef(name, revision, step=n, device=device, dtype=dtype, adapter=str(d)) for n, d in steps]

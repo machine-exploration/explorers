@@ -1,7 +1,7 @@
-"""Serve the reads of measures from one model: one traced forward pass per batch, with the study's
+"""Serve the reads of measures from one model: one traced forward pass per batch, with the experiment's
 writes applied, plus one backward sweep when a Jacobian is asked for.
 
-This is the only place that runs a model for measures. `Study` calls `serve` once per model and
+This is the only place that runs a model for measures. `Experiment` calls `serve` once per model and
 `serve_step` once per training step.
 """
 

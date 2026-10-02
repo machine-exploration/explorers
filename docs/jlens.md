@@ -111,7 +111,7 @@ name = "EleutherAI/pythia-70m"
 examples = ex.Examples.from_texts(texts, tokenizer, seq_len=128, max_examples=200)
 examples = examples.with_meta(split=np.where(np.arange(len(examples)) < 100, "fit", "eval"))
 layers = range(1, 6)
-ds = (ex.Study(ex.checkpoints(name, steps=ex.pick(ex.pythia_steps(), 24), device="cuda"), examples, dim_batch=8)
+ds = (ex.Experiment(ex.checkpoints(name, steps=ex.pick(ex.pythia_steps(), 24), device="cuda"), examples, dim_batch=8)
       .measure(ex.measures.jlens_error(layers), ex.measures.logit_lens_error(layers))
       .compute(store="runs/store"))
 on = ex.analysis.onsets(ds.jlens_error)   # when each layer's readout becomes what the model says

@@ -1,4 +1,4 @@
-"""Methods built on streams and studies: probes and sparse autoencoders.
+"""Methods built on streams and experiments: probes and sparse autoencoders.
 
 Each method is a composition over read / write / trace, not a new execution path.
 """

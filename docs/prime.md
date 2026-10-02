@@ -12,7 +12,7 @@ Explorers works with any training stack through thin adapters; this note covers 
 |---|---|---|
 | Runtime | Prime Intellect: pods, `prime-rl` (trainer, orchestrator), `verifiers` (environments, rubrics), vLLM | Trains, serves and scores the run; writes weights and rollouts to disk |
 | White-box layer | `explorers` | Opens those weights and measures what is inside, on the same pods |
-| Research | `mechanics` | Studies built from both |
+| Research | `mechanics` | Experiments built from both |
 
 `verifiers` talks to the model through an OpenAI-style API: it sees text, never weights or
 activations. White-box access happens where the weights are: the trainer, or what it writes.
@@ -48,13 +48,13 @@ import explorers as ex
 
 ex.archive_adapters("outputs/my-run", "runs/my-run/adapters")   # idempotent; copies finished broadcasts
 refs = ex.adapters("Qwen/Qwen3-8B", "runs/my-run/adapters", device="cuda", dtype="bfloat16")
-ds = ex.Study(refs, examples).measure(...).compute(store="runs/store")
+ds = ex.Experiment(refs, examples).measure(...).compute(store="runs/store")
 ```
 
 - `archive_adapters` copies each `broadcasts/step_N/` with a `.finished` marker that is not yet in
   the destination. Run it in a loop beside the trainer (a broadcast lives about two steps).
 - `adapters` returns one `ModelRef` per `step_N`: base model + adapter, merged into the weights at
-  load (`W + (alpha / r) B A`, computed in float32). The study coordinate is the step; the key is
+  load (`W + (alpha / r) B A`, computed in float32). The experiment coordinate is the step; the key is
   the base's key plus a hash of the adapter file, so results cache by content.
 - Merging is checked against running the adapter unmerged (`tests/test_prime.py`).
 
@@ -62,5 +62,5 @@ ds = ex.Study(refs, examples).measure(...).compute(store="runs/store")
 
 (The rollouts under `monitors/file/traces/` are replayed as examples: docs/episodes.md.)
 
-- A measure hook inside the trainer (run a study on the live weights every N steps, no copy).
+- A measure hook inside the trainer (run an experiment on the live weights every N steps, no copy).
 - MoE expert adapters; `modules_to_save`.

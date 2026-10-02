@@ -106,12 +106,12 @@ def test_ties_never_exceed_the_false_positive_budget():
         assert tpr == np.mean(s[y] > threshold)
 
 
-def test_both_monitors_in_a_study():
+def test_both_monitors_in_an_experiment():
     model = tiny_neox()
     tokens = random_examples(n=6, seq=7).tokens
     examples = Examples(tokens=tokens, meta={"label": np.array([1, 0, 1, 0, 1, 0]),
                                               "split": np.array(["fit"] * 4 + ["eval"] * 2)})
-    ds = (ex.Study(model, examples, batch_size=2)
+    ds = (ex.Experiment(model, examples, batch_size=2)
           .measure(measures.concept_monitor(1, [3, 11], skip_first=1), measures.probe_monitor(1, skip_first=1))
           .compute())
     assert ds.concept_monitor_1.dims == ("model", "example") == ds.probe_monitor_1.dims

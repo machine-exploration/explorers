@@ -16,7 +16,7 @@ from explorers import analysis, measures, toy  # noqa: E402
 def test_frequent_quanta_are_learned_first():
     task = toy.MultitaskLookup(n_tasks=8, n_symbols=8, alpha=1.5, seed=0)
     traj = toy.train(task, steps=900, every=60, batch_size=64, seed=0)
-    ds = ex.Study(traj, task.examples()).measure(measures.example_loss).compute()
+    ds = ex.Experiment(traj, task.examples()).measure(measures.example_loss).compute()
     on = analysis.onsets(ds.example_loss)
     assert np.isfinite(on.onset).mean() > 0.8                          # most examples were learned
     rho = analysis.spearman(ds.task_frequency, on.onset)

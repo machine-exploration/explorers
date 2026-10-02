@@ -1,8 +1,8 @@
 """Measures: pure, versioned functions of what a model computed on the examples.
 
-A measure declares what it reads; a study serves every read once per model and hands it to every
-measure that asked, so ten measures cost about one traced forward pass. Writes declared on the study
-apply to that pass: a measure sees the model as the study modified it.
+A measure declares what it reads; an experiment serves every read once per model and hands it to every
+measure that asked, so ten measures cost about one traced forward pass. Writes declared on the experiment
+apply to that pass: a measure sees the model as the experiment modified it.
 
 Reads:
   "weights"                named parameter arrays

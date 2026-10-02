@@ -1,4 +1,4 @@
-"""Studies over a real (tiny) training run: shapes, one load per state, the cache, step measures."""
+"""Experiments over a real (tiny) training run: shapes, one load per state, the cache, step measures."""
 
 import numpy as np
 import pytest
@@ -41,7 +41,7 @@ def test_snapshot_keys_follow_content():
 
 def test_shapes_coords_and_step_measures(short_run):
     examples = TASK.examples()
-    ds = (ex.Study(short_run, examples)
+    ds = (ex.Experiment(short_run, examples)
           .measure(measures.example_loss, measures.loss, measures.stable_rank, measures.update_norm).compute())
     assert list(ds.step.values) == [0, 20, 40, 60]
     assert ds.example_loss.dims == ("step", "example") and ds.example_loss.shape == (4, 16)
@@ -54,11 +54,11 @@ def test_shapes_coords_and_step_measures(short_run):
 
 def test_one_load_per_state_and_cache_skips_models(short_run, tmp_path):
     traj, calls = counting(short_run)
-    study = lambda: ex.Study(traj, TASK.examples()).measure(
+    experiment = lambda: ex.Experiment(traj, TASK.examples()).measure(
         measures.example_loss, measures.loss, measures.stable_rank, measures.residual_norm(1))
-    first = study().compute(store=tmp_path)
+    first = experiment().compute(store=tmp_path)
     assert calls == [0, 20, 40, 60]                          # four measures, one load each
-    second = study().compute(store=tmp_path)
+    second = experiment().compute(store=tmp_path)
     assert calls == [0, 20, 40, 60]                          # everything came from the store
     xr.testing.assert_allclose(first.example_loss, second.example_loss)
     assert list(second.param.values) == list(first.param.values)
@@ -66,16 +66,16 @@ def test_one_load_per_state_and_cache_skips_models(short_run, tmp_path):
 
 def test_new_measure_version_is_recomputed(short_run, tmp_path):
     traj, calls = counting(short_run)
-    ex.Study(traj, TASK.examples()).measure(measures.loss).compute(store=tmp_path)
+    ex.Experiment(traj, TASK.examples()).measure(measures.loss).compute(store=tmp_path)
 
     @measure(reads=["token_loss"], dims=(), version="1", name="loss")
     def loss_v1(ctx):
         return float(np.nanmean(ctx.token_loss))
 
-    ex.Study(traj, TASK.examples()).measure(loss_v1).compute(store=tmp_path)
+    ex.Experiment(traj, TASK.examples()).measure(loss_v1).compute(store=tmp_path)
     assert len(calls) == 8
 
 
 def test_step_measures_need_a_trajectory():
     with pytest.raises(ValueError, match="Trajectory"):
-        ex.Study([ex.open(toy.tiny_gpt(TASK.vocab_size))], TASK.examples()).measure(measures.update_norm)
+        ex.Experiment([ex.open(toy.tiny_gpt(TASK.vocab_size))], TASK.examples()).measure(measures.update_norm)

@@ -1,6 +1,6 @@
 """Content-addressed results.
 
-A result is stored under a key that hashes everything that determines it (for a study: the study
+A result is stored under a key that hashes everything that determines it (for an experiment: the experiment
 key, the model key and the output name). Identical results made on different machines get the same
 key, so result folders can be merged by copying files.
 """

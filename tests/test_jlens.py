@@ -115,13 +115,13 @@ def test_lens_measures_over_a_run_and_cache(tmp_path):
     run = Trajectory(run="tiny", states=[state(0, 0), state(10, 1)])
     obs = [measures.jlens_error([0, 1], skip_first=1), measures.logit_lens_error([0, 1], skip_first=1),
            measures.jacobian(1, skip_first=1)]
-    ds = ex_.Study(run, ex).measure(*obs).compute(store=tmp_path)
+    ds = ex_.Experiment(run, ex).measure(*obs).compute(store=tmp_path)
     assert ds.jlens_error.dims == ("step", "layer") and list(ds.layer.values) == [0, 1]
     assert ((ds.jlens_error >= 0) & (ds.jlens_error <= 1)).all()
     assert ((ds.logit_lens_error >= 0) & (ds.logit_lens_error <= 1)).all()
     assert ds.jacobian_1.shape == (2, 8, 8)
     assert len(loads) == 2
-    again = ex_.Study(run, ex).measure(*obs).compute(store=tmp_path)
+    again = ex_.Experiment(run, ex).measure(*obs).compute(store=tmp_path)
     assert len(loads) == 2                                   # everything came from the store
     np.testing.assert_array_equal(again.jlens_error.values, ds.jlens_error.values)
 
@@ -139,9 +139,9 @@ def test_lens_refuses_writes():
     from explorers import ops
 
     model, ex = tiny_neox(), random_examples()
-    study = ex_.Study(model, ex).write("residual", 1, fn=ops.Scale(2.0)).measure(measures.jlens_error([1], skip_first=1))
+    experiment = ex_.Experiment(model, ex).write("residual", 1, fn=ops.Scale(2.0)).measure(measures.jlens_error([1], skip_first=1))
     with pytest.raises(ValueError, match="unmodified"):
-        study.compute()
+        experiment.compute()
 
 
 # --- workspace signatures ----------------------------------------------------------------------------
@@ -215,7 +215,7 @@ def test_kurtosis_matches_direct_computation():
     model = tiny_neox()
     ex = random_examples(n=4, seq=8)
     m = measures.lens_kurtosis([1], 1)
-    ds = ex_.Study(model, ex).measure(m).compute()
+    ds = ex_.Experiment(model, ex).measure(m).compute()
     ctx = serve(model, ex, set(m.reads))
     h = ctx.stream("residual", 1)[:, 1:7] @ ctx.jacobian[(1, 1, "final")].T
     with torch.no_grad():
@@ -225,11 +225,11 @@ def test_kurtosis_matches_direct_computation():
     np.testing.assert_allclose(ds.jlens_kurtosis.sel(model=model.key).values, [np.median(k)], rtol=1e-4)
 
 
-def test_signatures_in_a_study():
+def test_signatures_in_an_experiment():
     model = tiny_neox(layers=3)
     ex = random_examples(n=6, seq=10, split=np.array(["fit"] * 3 + ["eval"] * 3))
     layers = [0, 1, 2]
-    ds = ex_.Study(model, ex).measure(
+    ds = ex_.Experiment(model, ex).measure(
         measures.jlens_dimension(layers, 1, target="penultimate"), measures.jlens_cka(layers, 1),
         measures.lens_kurtosis(layers, 1), measures.lens_persistence(layers, 1, offsets=(1, 2))).compute()
     assert ds.jlens_cka.dims == ("model", "layer", "layer2")

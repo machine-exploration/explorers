@@ -43,35 +43,35 @@ def test_checkpoint_handles_have_keys_before_loading(hub):
     refs = ex.checkpoints("org/model", steps=[0, 10, 20])
     assert [r.key for r in refs] == ["org/model@step0", "org/model@step10", "org/model@step20"]
     assert hub == []                                              # nothing loaded yet
-    study = ex.Study(refs, tokens()).read("residual", layers=[1], position=-1, reduce=ops.Norm())
-    assert study.spec()["models"] == [r.key for r in refs]          # hashable before any download
-    ds = study.compute()
+    experiment = ex.Experiment(refs, tokens()).read("residual", layers=[1], position=-1, reduce=ops.Norm())
+    assert experiment.spec()["models"] == [r.key for r in refs]          # hashable before any download
+    ds = experiment.compute()
     assert list(ds.step.values) == [0, 10, 20] and hub == ["step0", "step10", "step20"]
 
 
-def test_store_resumes_and_follows_the_study(hub, tmp_path):
+def test_store_resumes_and_follows_the_experiment(hub, tmp_path):
     refs = ex.checkpoints("org/model", steps=[0, 10])
-    make = lambda s: ex.Study(refs, tokens()).read("residual", layers="*", position=-1, reduce=ops.Project(np.ones(D) * s))
+    make = lambda s: ex.Experiment(refs, tokens()).read("residual", layers="*", position=-1, reduce=ops.Project(np.ones(D) * s))
     first = make(1.0).compute(store=tmp_path)
     assert hub == ["step0", "step10"]
     again = make(1.0).compute(store=tmp_path)
     assert hub == ["step0", "step10"]                               # all cached: nothing loaded
     np.testing.assert_array_equal(again.residual.values, first.residual.values)
-    make(2.0).compute(store=tmp_path)                               # another study: another key
+    make(2.0).compute(store=tmp_path)                               # another experiment: another key
     assert hub == ["step0", "step10", "step0", "step10"]
 
 
-def test_store_needs_a_serializable_study(tmp_path):
-    study = ex.Study(ex.open(tiny(0)), tokens()).write("residual", 1, fn=lambda h: h)
+def test_store_needs_a_serializable_experiment(tmp_path):
+    experiment = ex.Experiment(ex.open(tiny(0)), tokens()).write("residual", 1, fn=lambda h: h)
     with pytest.raises(ValueError, match="callable"):
-        study.compute(store=tmp_path)
+        experiment.compute(store=tmp_path)
 
 
 def test_writes_apply_to_measures():
-    """One execution path: measures see the model as the study modified it."""
+    """One execution path: measures see the model as the experiment modified it."""
     model, ids = ex.open(tiny(0)), tokens()
-    base = ex.Study(model, ids).measure(measures.loss, measures.residual_norm(2)).compute()
-    ablated = (ex.Study(model, ids).write("residual", 2, fn=ops.Ablate())
+    base = ex.Experiment(model, ids).measure(measures.loss, measures.residual_norm(2)).compute()
+    ablated = (ex.Experiment(model, ids).write("residual", 2, fn=ops.Ablate())
                .measure(measures.loss, measures.residual_norm(2)).compute())
     assert np.allclose(ablated.residual_norm_2.values, 0)
     assert not np.isclose(ablated.loss.item(), base.loss.item())
@@ -80,7 +80,7 @@ def test_writes_apply_to_measures():
 def test_logit_diff_is_the_same_as_a_patching_metric():
     model, ids = ex.open(tiny(0)), tokens()
     ld = measures.logit_diff(3, 5)
-    ds = ex.Study(model, ids).measure(ld).compute()
+    ds = ex.Experiment(model, ids).measure(ld).compute()
     with model.trace(ids) as run:
         pass
     np.testing.assert_allclose(ds.logit_diff.values[0], (run.logits[:, -1, 3] - run.logits[:, -1, 5]).numpy(), rtol=1e-5)
@@ -91,5 +91,5 @@ def test_dtype_and_progress(capsys):
     with model.trace(tokens()) as run:
         x = run.stream("residual").read(2, position=-1)
     assert x.value.dtype == torch.bfloat16 and run.logits.dtype == torch.bfloat16
-    ex.Study(model, tokens()).read("residual", layers=[0], position=-1).compute(verbose=True)
+    ex.Experiment(model, tokens()).read("residual", layers=[0], position=-1).compute(verbose=True)
     assert "[1/1]" in capsys.readouterr().out

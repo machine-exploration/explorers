@@ -35,7 +35,7 @@ import explorers as ex
 records = ex.episodes.read_stream("outputs/my-run/monitors/file/traces/stream")
 examples, logprobs = ex.episodes.replay(records, pad_id=tokenizer.pad_token_id,
                                         label=lambda episode, trace: trace["rewards"]["pass"]["score"] > 0)
-ds = ex.Study(model, examples).measure(ex.measures.concept_monitor(40, word_ids),
+ds = ex.Experiment(model, examples).measure(ex.measures.concept_monitor(40, word_ids),
                                        ex.measures.probe_monitor(40)).compute()
 ```
 

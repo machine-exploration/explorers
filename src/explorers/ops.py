@@ -1,7 +1,7 @@
 """Interventions and reductions as data: what a trace does to a stream, and what a read keeps.
 
-A study made only of these can be written to JSON, hashed, sent to another machine and planned.
-Plain Python callables still work for local runs, but they make a study non-serializable.
+An experiment made only of these can be written to JSON, hashed, sent to another machine and planned.
+Plain Python callables still work for local runs, but they make an experiment non-serializable.
 
 Interventions (for `write`), tensor -> tensor of the same shape:
   Add(vector, scale)      h + scale * vector
@@ -133,5 +133,5 @@ def is_data(x) -> bool:
 
 
 def spec_hash(spec: dict) -> str:
-    """Content hash of a serialized study: equal specs, equal hashes, on any machine."""
+    """Content hash of a serialized experiment: equal specs, equal hashes, on any machine."""
     return hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:32]

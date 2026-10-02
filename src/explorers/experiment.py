@@ -1,13 +1,13 @@
-"""Studies: the unit of work. Reads, writes, measures and patching over models × examples.
+"""Experiments: the unit of work. Reads, writes, measures and patching over models × examples.
 
-    study = ex.Study(models=ex.checkpoints("EleutherAI/pythia-70m", steps=[0, 1000, 143000]), examples=ex_)
-    study.read("residual", layers="*", position=-1, reduce=ex.ops.Norm())
-    study.write("residual", layer=2, position=-1, fn=ex.ops.Add(direction, 4.0))
-    study.measure(ex.measures.loss, ex.measures.logit_diff(correct, wrong))
-    study.patch(source=clean, stream="residual", metric=ex.measures.logit_diff(correct, wrong))
-    ds = study.compute(store="runs/store")
+    experiment = ex.Experiment(models=ex.checkpoints("EleutherAI/pythia-70m", steps=[0, 1000, 143000]), examples=ex_)
+    experiment.read("residual", layers="*", position=-1, reduce=ex.ops.Norm())
+    experiment.write("residual", layer=2, position=-1, fn=ex.ops.Add(direction, 4.0))
+    experiment.measure(ex.measures.loss, ex.measures.logit_diff(correct, wrong))
+    experiment.patch(source=clean, stream="residual", metric=ex.measures.logit_diff(correct, wrong))
+    ds = experiment.compute(store="runs/store")
 
-A study only declares; `compute` executes it, one model at a time.
+An experiment only declares; `compute` executes it, one model at a time.
 
 - **Models:** `Model`s, lazy handles from `ex.checkpoints(...)` (loaded one at a time, released
   after), zero-argument callables returning a `Model`, or an `explorers.state.Trajectory` (whose
@@ -15,12 +15,12 @@ A study only declares; `compute` executes it, one model at a time.
   with a step, the result's first dimension is `step`; otherwise it is `model`.
 - **Examples:** `explorers.data.Examples`, or a (n, seq) token array. Their metadata columns become
   coordinates on the `example` dimension.
-- **Writes** apply to every run of the study: reads, measures and patched runs (Jacobians are fitted
+- **Writes** apply to every run of the experiment: reads, measures and patched runs (Jacobians are fitted
   on the unmodified model and refuse writes).
 - **`read`** returns raw stream values (or a reduction computed on the device); **`measure`** runs
   `explorers.measures` on everything one traced forward pass serves.
-- **`compute(store=folder)`** caches each output of each model under (study key, model key, output),
-  so a long study resumes where it stopped. **`spec()`** is the study as JSON (`explorers.study/v0`)
+- **`compute(store=folder)`** caches each output of each model under (experiment key, model key, output),
+  so a long experiment resumes where it stopped. **`spec()`** is the experiment as JSON (`explorers.experiment/v1`)
   and **`key()`** its hash; interventions and reductions must then be `explorers.ops` data.
 
 Execution is direct: one traced forward pass per batch, one per patched site. The Runtime will plan
@@ -46,7 +46,7 @@ def _examples(examples):
 
 def _models(models):
     """[(coordinate, content key or None, loader, owned, step or None)]. `owned` models are loaded by
-    the study and released after use."""
+    the experiment and released after use."""
     from explorers.model import Model, ModelRef
 
     states = getattr(models, "states", None)
@@ -95,7 +95,7 @@ def _free():
         pass
 
 
-class Study:
+class Experiment:
     def __init__(self, models, examples, batch_size: int = 16, dim_batch: int = 1):
         """`dim_batch`: copies of each batch stacked when fitting Jacobians; more is faster on a GPU
         and uses more memory. It does not change results."""
@@ -114,13 +114,13 @@ class Study:
 
     # --- declarations -------------------------------------------------------------------------
 
-    def read(self, stream: str, layers, position=None, name: str | None = None, reduce=None) -> "Study":
+    def read(self, stream: str, layers, position=None, name: str | None = None, reduce=None) -> "Experiment":
         """Raw stream values. `reduce` (e.g. `ops.Project(direction)`) runs on the device; only its
         output is kept."""
         self.reads.append((name or stream, stream, layers, position, reduce))
         return self
 
-    def write(self, stream: str, layer: int, position=None, fn=None, value=None) -> "Study":
+    def write(self, stream: str, layer: int, position=None, fn=None, value=None) -> "Experiment":
         if (fn is None) == (value is None):
             raise ValueError("write needs exactly one of fn= or value=")
         from explorers.ops import Set
@@ -128,7 +128,7 @@ class Study:
         self.writes.append((stream, layer, position, fn if fn is not None else Set(value)))
         return self
 
-    def measure(self, *measures) -> "Study":
+    def measure(self, *measures) -> "Experiment":
         """`explorers.measures` (losses, weight statistics, lenses, logit differences), all served by
         one traced forward pass per batch (and one backward sweep for Jacobians)."""
         for m in measures:
@@ -138,8 +138,8 @@ class Study:
         return self
 
     def patch(self, source, stream: str = "residual", layers="*", positions="*", metric=None,
-              method: str = "exact", name: str = "patch") -> "Study":
-        """Patch `stream` from the `source` examples (clean) into the study's examples (corrupt), one
+              method: str = "exact", name: str = "patch") -> "Experiment":
+        """Patch `stream` from the `source` examples (clean) into the experiment's examples (corrupt), one
         site (layer, position) at a time, and report the normalized effect on `metric` (a measure of
         the logits, one value per example, e.g. `measures.logit_diff`):
         (m_patched - m_corrupt) / (m_clean - m_corrupt). 1 = the site restores the clean behaviour,
@@ -158,13 +158,13 @@ class Study:
     # --- serialization -----------------------------------------------------------------------
 
     def spec(self) -> dict:
-        """The study as JSON-ready data (format `explorers.study/v0`). Raises if an intervention or a
+        """The experiment as JSON-ready data (format `explorers.experiment/v1`). Raises if an intervention or a
         reduction is a Python callable instead of `explorers.ops` data, or if a model has no key."""
         from explorers.ops import is_data
 
         def data(x, what):
             if not is_data(x):
-                raise ValueError(f"{what} is a Python callable; use explorers.ops to make the study serializable")
+                raise ValueError(f"{what} is a Python callable; use explorers.ops to make the experiment serializable")
             return None if x is None else x.to_dict()
 
         keys = [key for _, key, *_ in self._models]
@@ -172,7 +172,7 @@ class Study:
             raise ValueError("a model is a loader without a content key; pass Models, checkpoints or a Trajectory")
         layers = lambda ls: ls if ls == "*" else [int(x) for x in ls]  # noqa: E731
         return {
-            "format": "explorers.study/v0",
+            "format": "explorers.experiment/v1",
             "models": keys,
             "steps": [f"{s.before.key}->{s.after.key}" for s in self._steps] if any(m.on_steps for m in self.measures) else [],
             "examples": {"fingerprint": self.examples.fingerprint, "shape": list(self.tokens.shape)},
@@ -187,7 +187,7 @@ class Study:
         }
 
     def key(self) -> str:
-        """Content key of the study: equal studies get equal keys, on any machine."""
+        """Content key of the experiment: equal experiments get equal keys, on any machine."""
         from explorers.ops import spec_hash
 
         return spec_hash(self.spec())
@@ -283,7 +283,7 @@ class Study:
         return ([n for n, *_ in self.reads] + [m.name for m in self.measures if not m.on_steps]
                 + [p[0] for p in self.patches])
 
-    def _step_outputs(self, store, study_key) -> dict:
+    def _step_outputs(self, store, experiment_key) -> dict:
         """{after-step: {name: DataArray}} for step measures of a Trajectory."""
         import hashlib
 
@@ -293,7 +293,7 @@ class Study:
         out = {}
         for step in self._steps if step_measures else []:
             unit = f"step:{step.before.key}->{step.after.key}"
-            keys = {m.name: hashlib.sha256(f"{study_key}|{unit}|{m.name}".encode()).hexdigest()[:32] for m in step_measures}
+            keys = {m.name: hashlib.sha256(f"{experiment_key}|{unit}|{m.name}".encode()).hexdigest()[:32] for m in step_measures}
             cached = {n: store.get(k) for n, k in keys.items()} if store is not None else {}
             if cached and all(v is not None for v in cached.values()):
                 out[step.step] = cached
@@ -302,29 +302,29 @@ class Study:
             out[step.step] = {m.name: m(ctx).reset_coords(drop=True) for m in step_measures}
             if store is not None:
                 for n, da in out[step.step].items():
-                    store.put(keys[n], da, {"study": study_key, "step": unit, "output": n})
+                    store.put(keys[n], da, {"experiment": experiment_key, "step": unit, "output": n})
         return out
 
     def compute(self, store=None, verbose: bool = False) -> xr.Dataset:
-        """Run the study. With `store` (a folder), each output of each model is cached under
-        (study key, model key, output name); models whose outputs are all cached are not loaded."""
+        """Run the experiment. With `store` (a folder), each output of each model is cached under
+        (experiment key, model key, output name); models whose outputs are all cached are not loaded."""
         import hashlib
         import time
         from pathlib import Path
 
         from explorers.store import Store
 
-        study_key = None
+        experiment_key = None
         if store is not None:
             store = store if isinstance(store, Store) else Store(Path(store))
-            study_key = self.key()                     # raises if the study is not serializable
-        steps = self._step_outputs(store, study_key)
+            experiment_key = self.key()                     # raises if the experiment is not serializable
+        steps = self._step_outputs(store, experiment_key)
         missing = {n: xr.full_like(da, np.nan, dtype=float) for n, da in next(iter(steps.values())).items()} if steps else {}
         per_model, coords = [], []
         for i, (coord, key, load, owned, step) in enumerate(self._models):
             t0 = time.time()
             names = self._names()
-            ckeys = {n: hashlib.sha256(f"{study_key}|{key}|{n}".encode()).hexdigest()[:32] for n in names}
+            ckeys = {n: hashlib.sha256(f"{experiment_key}|{key}|{n}".encode()).hexdigest()[:32] for n in names}
             cached = {n: store.get(k) for n, k in ckeys.items()} if store is not None and names else {}
             if not names:
                 outputs, how = {}, "nothing to compute"
@@ -335,7 +335,7 @@ class Study:
                 outputs, how = self._compute_model(model), "computed"
                 if store is not None:
                     for n, da in outputs.items():
-                        store.put(ckeys[n], da, {"study": study_key, "model": key, "output": n})
+                        store.put(ckeys[n], da, {"experiment": experiment_key, "model": key, "output": n})
                 del model
                 if owned:
                     _free()

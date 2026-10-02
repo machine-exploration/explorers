@@ -22,17 +22,17 @@ with model.trace(tokens) as run:                      # declared, then run once 
 x.value, run.logits
 ```
 
-A **study** is the unit of work: reads, writes, measures and patching over models (for example the checkpoints of a run) × examples, one model at a time, with results cached by content.
+A **experiment** is the unit of work: reads, writes, measures and patching over models (for example the checkpoints of a run) × examples, one model at a time, with results cached by content.
 
 ```python
-study = ex.Study(ex.checkpoints("EleutherAI/pythia-70m", steps=[0, 1000, 143000]), examples)
-study.read("residual", layers="*", position=-1, reduce=ex.ops.Norm())
-study.measure(ex.measures.loss, ex.measures.jlens_error(layers=range(1, 6)))
-study.patch(source=clean, metric=ex.measures.logit_diff(correct, wrong))
-ds = study.compute(store="runs/store")                  # an xarray Dataset indexed by step
+experiment = ex.Experiment(ex.checkpoints("EleutherAI/pythia-70m", steps=[0, 1000, 143000]), examples)
+experiment.read("residual", layers="*", position=-1, reduce=ex.ops.Norm())
+experiment.measure(ex.measures.loss, ex.measures.jlens_error(layers=range(1, 6)))
+experiment.patch(source=clean, metric=ex.measures.logit_diff(correct, wrong))
+ds = experiment.compute(store="runs/store")                  # an xarray Dataset indexed by step
 ```
 
-Six concepts: **Model** (named streams: `residual`, `attn_out`, `mlp_out`, the same on GPT-NeoX, Llama, GPT-2 and Qwen 3.5+), **Stream**, **Trace** (one forward pass), **Op** (interventions and reductions as data), **Measure** (named, versioned functions of what a model computed), **Study**. The whole design fits on one page: [docs/interface.md](docs/interface.md). Other notes: [docs/monitors.md](docs/monitors.md) (concept, logit-lens and probe monitors, detection at a matched false-positive rate), [docs/episodes.md](docs/episodes.md) (replaying agent rollouts exactly), [docs/reward-hacking-probes.md](docs/reward-hacking-probes.md) (the reward-hacking protocol), [docs/prime.md](docs/prime.md) (reading prime-rl runs), [docs/jlens.md](docs/jlens.md) (the Jacobian lens), [docs/pythia.md](docs/pythia.md) (checkpoints), [docs/desk-spikes-2026-09-27.md](docs/desk-spikes-2026-09-27.md) (reading activations next to a trainer).
+Six concepts: **Model** (named streams: `residual`, `attn_out`, `mlp_out`, the same on GPT-NeoX, Llama, GPT-2 and Qwen 3.5+), **Stream**, **Trace** (one forward pass), **Op** (interventions and reductions as data), **Measure** (named, versioned functions of what a model computed), **Experiment**. The whole design fits on one page: [docs/interface.md](docs/interface.md). Other notes: [docs/monitors.md](docs/monitors.md) (concept, logit-lens and probe monitors, detection at a matched false-positive rate), [docs/episodes.md](docs/episodes.md) (replaying agent rollouts exactly), [docs/reward-hacking-probes.md](docs/reward-hacking-probes.md) (the reward-hacking protocol), [docs/prime.md](docs/prime.md) (reading prime-rl runs), [docs/jlens.md](docs/jlens.md) (the Jacobian lens), [docs/pythia.md](docs/pythia.md) (checkpoints), [docs/desk-spikes-2026-09-27.md](docs/desk-spikes-2026-09-27.md) (reading activations next to a trainer).
 
 Supporting modules: `data` (examples identified by content), `state` (training runs), `store`, `analysis` (onsets, rank correlation, AUROC), `toy` (tasks with known answers), `methods` (probes, sparse autoencoders). The agent side, `explorers.populations` (scenarios, a multi-agent runtime through the pinned [verifiers](https://github.com/machine-exploration/verifiers) fork), is frozen behind the `populations` extra.
 
@@ -48,16 +48,19 @@ for step, batch in env.batches():                                  # data order 
     out = m.forward_backward(batch, reads={"residual[*]": ex.project(V)}, do=None)
     m.optim_step()
 
-@ex.experiment(sizes=[1, 2, 4], seeds=range(5), init_scale=[0.1, 1.0])
-def onset_law(m, env):
-    return ex.train(m, env, steps=20_000, every=100, measure=[per_task_accuracy, readability])
+@ex.sweep(size=[1, 2, 4], seed=range(5), init_scale=[0.1, 1.0])
+def onset_law(check, size, seed, init_scale):
+    m = ex.model(ex.configs.tiny(scale=size), seed=seed, init_scale=init_scale)
+    return ex.train(m, planted_tasks(sliver=check), steps=100 if check else 20_000, every=100,
+                    measure=[per_task_accuracy, readability])
 
-R = onset_law.run(on=ex.Modal())                                   # 30 runs in parallel
+onset_law.check()                     # one grid point, on the CPU, on a sliver of the data
+R = onset_law.run(on=ex.Modal())      # 30 runs on GPU workers; stored runs are never recomputed
 ```
 
-- **Primitives:** `model`, `forward_backward(reads=, do=)`, `optim_step`, `sample`, `stream` (one model's activations fed to another training loop, nothing stored), `save`/`load`, and `@experiment` over a grid of sizes, seeds and checkpoints.
+- **Primitives:** `model`, `forward_backward(reads=, do=)`, `optim_step`, `sample`, `stream` (one model's activations fed to another training loop, nothing stored), `save`/`load`, and `@sweep` over a grid of sizes, seeds and checkpoints.
 - **Environments** in Prime Intellect's format (data in a recorded order plus a rubric), read through an adapter so the core does not import verifiers.
-- **Backends:** Local for tests, Modal first. Small models ship their whole loop to the backend; large ones take one call per primitive on a resident model.
+- **Sweeps and backends:** `@ex.sweep` is built: a grid of runs keyed by content, checked on the CPU, sent to a backend. Locally only the check runs; full runs go to GPU workers, Modal first. Small models ship their whole loop to the backend; large ones take one call per primitive on a resident model.
 - **Fast iteration:** activations cached once when an experiment reuses them, sweeps in one line, warm GPUs while you iterate, only changed grid points recomputed, results streamed back while runs go, a smoke mode before every full run, resume for long jobs.
 - **Rules that carry over:** the same experiment gives the same result on every backend within a stated tolerance; every result reproduces from config, seed, data order and code version; cost comes back with every run.
 

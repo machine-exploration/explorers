@@ -47,7 +47,7 @@ def test_reductions_run_on_the_device():
         n = run.stream("residual").read(2, reduce=ops.Norm())
     torch.testing.assert_close(p.value, x.value @ u)
     assert p.value.shape == (len(ids),) and n.value.shape == (len(ids), SEQ)
-    ds = ex.Study(model, ids).read("residual", layers=[1, 2], position=-1, reduce=ops.Project(u)).compute()
+    ds = ex.Experiment(model, ids).read("residual", layers=[1, 2], position=-1, reduce=ops.Project(u)).compute()
     assert ds.residual.dims == ("model", "example", "layer")
     np.testing.assert_allclose(ds.residual.sel(layer=2).values[0], p.value.numpy(), rtol=1e-5)
 
@@ -90,34 +90,34 @@ def test_ops_round_trip_through_json(op):
     torch.testing.assert_close(again(x), op(x))
 
 
-# --- studies as data ---------------------------------------------------------------------------------
+# --- experiments as data ---------------------------------------------------------------------------------
 
-def data_study(model, ids, scale=2.0):
-    return (ex.Study(model, ids)
+def data_experiment(model, ids, scale=2.0):
+    return (ex.Experiment(model, ids)
             .read("residual", layers="*", position=-1, reduce=ops.Norm())
             .write("residual", 1, position=-1, fn=ex.ops.Add(np.ones(D), scale))
             .measure(ex.measures.logit_diff(3, 5))
             .patch(source=ids[::-1].copy(), metric=ex.measures.logit_diff(3, 5), layers=[0, L], positions=[0]))
 
 
-def test_study_spec_is_json_and_its_key_follows_content():
+def test_experiment_spec_is_json_and_its_key_follows_content():
     model, ids = neox(), tokens()
-    spec = data_study(model, ids).spec()
-    assert spec["format"] == "explorers.study/v0"
+    spec = data_experiment(model, ids).spec()
+    assert spec["format"] == "explorers.experiment/v1"
     assert json.loads(json.dumps(spec)) == spec
-    assert data_study(model, ids).key() == data_study(model, ids).key()
-    assert data_study(model, ids, scale=3.0).key() != data_study(model, ids).key()
-    assert data_study(neox(seed=1), ids).key() != data_study(model, ids).key()           # other weights
+    assert data_experiment(model, ids).key() == data_experiment(model, ids).key()
+    assert data_experiment(model, ids, scale=3.0).key() != data_experiment(model, ids).key()
+    assert data_experiment(neox(seed=1), ids).key() != data_experiment(model, ids).key()           # other weights
 
 
 def test_callables_run_locally_but_do_not_serialize():
     model, ids = neox(), tokens()
-    study = ex.Study(model, ids).write("residual", 1, position=-1, fn=lambda h: h * 2).measure(ex.measures.logit_diff(3, 5))
-    study.compute()                                                                        # runs
+    experiment = ex.Experiment(model, ids).write("residual", 1, position=-1, fn=lambda h: h * 2).measure(ex.measures.logit_diff(3, 5))
+    experiment.compute()                                                                        # runs
     with pytest.raises(ValueError, match="callable"):
-        study.spec()
+        experiment.spec()
     with pytest.raises(ValueError, match="content key"):
-        ex.Study(lambda: model, ids).spec()
+        ex.Experiment(lambda: model, ids).spec()
     with model.trace(ids) as run:
         run.stream("residual").write(1, fn=ops.Scale(2.0))
     assert run.serializable

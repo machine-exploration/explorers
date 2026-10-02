@@ -13,7 +13,7 @@ each essential; one way to do each thing; data structures first.
 | **Trace** | `trace.py` | One forward pass. Reads and writes are declared inside `with model.trace(tokens)` and run on exit. |
 | **Op** | `ops.py` | What a write does to a stream (`Add`, `Set`, `Scale`, `Ablate`, `ProjectOut`) or what a read keeps (`Project`, `Norm`). Data: JSON round trip. |
 | **Measure** | `measures.py` | A named, versioned function of what a model computed. It declares its reads (`token_loss`, `logits:p`, `residual:L`, `weights`, `unembed`, `jacobian:L:skip[:target]`, `concept:L:skip:target:ids`, `step`, …). Monitors (`concept_monitor`, `probe_monitor`) score one number per example (`docs/monitors.md`). |
-| **Study** | `study.py` | The unit of work: `read`, `write`, `measure`, `patch` over models × examples. `compute(store=...)` runs it. |
+| **Experiment** | `experiment.py` | The unit of work: `read`, `write`, `measure`, `patch` over models × examples. `compute(store=...)` runs it. |
 
 Everything else supports these: `execute.py` (serves the reads of measures), `data.py` (examples
 identified by content; `episodes.py` replays agent rollouts, `docs/episodes.md`), `state.py` (training runs as states and steps), `store.py` (results by
@@ -22,18 +22,18 @@ content key), `analysis.py` (onsets, rank correlation, AUROC; arrays only, never
 
 ## One execution path
 
-A study executes one model at a time:
+An experiment executes one model at a time:
 
-1. **Reads** (`study.read`): one traced pass per batch; each read keeps only its selection, or a
+1. **Reads** (`experiment.read`): one traced pass per batch; each read keeps only its selection, or a
    reduction computed on the device.
-2. **Measures** (`study.measure`): `execute.serve` runs one traced pass per batch with the study's
+2. **Measures** (`experiment.measure`): `execute.serve` runs one traced pass per batch with the experiment's
    writes applied, and fills a `Context` with every declared read; each measure is a pure function of
    it. Jacobians (for the lens) add one backward sweep on the unmodified model.
-3. **Patches** (`study.patch`): exact (one pass per site, batched over examples, clean activations
+3. **Patches** (`experiment.patch`): exact (one pass per site, batched over examples, clean activations
    computed once per batch) or attribution (one forward and one backward pass for all sites).
 4. **Step measures** (`update_norm`, `grad_norm`) run on the training steps of a `Trajectory`.
 
-Declare-then-execute is what scale needs: a whole study is known before it runs, so it can be
+Declare-then-execute is what scale needs: a whole experiment is known before it runs, so it can be
 sharded and planned. Results must not change when it is.
 
 ## Traces
@@ -44,19 +44,17 @@ sharded and planned. Results must not change when it is.
   of one layer costs batch × d floats.
 - `trace(grad=True)` keeps the graph, rooted at the embedding output (frozen models work); compute a
   metric from `run.logits`, call `.backward()`, read `value.grad`.
-- Hooks: residual sites are forward pre-hooks on the block (or the final norm for L = n); sublayer
-  sites are forward hooks on the attention or MLP module.
 
-## Studies as data
+## Experiments as data
 
-- `spec()` is the study as JSON (`explorers.study/v0`): model keys, the examples' fingerprint and
+- `spec()` is the experiment as JSON (`explorers.experiment/v1`): model keys, the examples' fingerprint and
   shape, reads, writes (ops), measures (name, version, parameters), patches. It refuses Python
   callables in writes and reductions.
-- `key()` hashes the spec. Equal studies get equal keys on any machine; any change to a parameter,
+- `key()` hashes the spec. Equal experiments get equal keys on any machine; any change to a parameter,
   the weights or the examples changes it.
 - `compute(store=folder)` stores each output of each model under
-  `sha256(study key | model key | output)`. A model whose outputs are all stored is not loaded, so a
-  study over many checkpoints resumes where it stopped. Change a measure's code, bump its `version`.
+  `sha256(experiment key | model key | output)`. A model whose outputs are all stored is not loaded, so an
+  experiment over many checkpoints resumes where it stopped. Change a measure's code, bump its `version`.
 - Results are an `xarray.Dataset`. The first dimension is `step` when every model is a checkpoint
   with a step (a `Trajectory`, or `ex.checkpoints`), otherwise `model`. Example metadata columns
   become coordinates on `example`.
@@ -64,15 +62,18 @@ sharded and planned. Results must not change when it is.
 ## Canonical and derived data
 
 - **Canonical** (stored or referenced, never recomputed): the weights (a checkpoint, by its model key
-  `name@revision`), the examples (by fingerprint), and the study (by its spec and key).
-- **Derived:** streams are a function of weights and examples, so they are recomputed, not stored;
-  a read keeps only its selection or reduction. Results are a function of all three, so they are
-  cached by content key and can always be rebuilt.
-- Weights are not a seventh concept: a Model holds them and a Measure reads them (`weights`, and
-  `step` for before, after and the gradient). Today they carry PyTorch parameter names. Planned, when
-  the first weight-space measure needs it: uniform names across layouts, as for streams
-  (`attn.W_Q[L]`, `attn.W_K[L]`, `attn.W_V[L]`, `attn.W_O[L]`, `mlp.W_in[L]`, `mlp.W_out[L]`, `embed`,
-  `unembed`), GPT-NeoX first, with the same exact checks (a named weight equals the parameter it maps).
+  `name@revision`), the examples (by fingerprint), and the experiment (by its spec and key).
+- **Derived:** streams are recomputed from weights and examples, never stored; results are cached by
+  content key and can always be rebuilt.
+- Weights are not a seventh concept: a Model holds them and a Measure reads them (`weights`, `step`).
+  Planned: uniform weight names across layouts (`attn.W_Q[L]`, `mlp.W_in[L]`, …), checked exactly.
+
+## Sweeps and backends
+
+`sweep.py`: `@ex.sweep(**grid)` turns a function `f(check, **params)` into a Sweep, one Run per grid
+point. A run's key hashes the sweep's name, the function's source and its parameters; stored runs are
+never recomputed. Nothing heavy runs locally: `check()` runs the first point on the CPU with
+`check=True` (a sliver of the data), and `run(on=backend)` sends every run to GPU workers.
 
 ## Checks, exact by construction
 
@@ -89,12 +90,11 @@ built locally, hold for any weights:
 | Attribution patching | 0 where activations are equal or there is no path; equal to exact patching where the metric is linear in the site |
 | Sparse autoencoder | features equal the definition; an identity SAE round-trips |
 
-The Jacobian lens has its own checks (docs/jlens.md). The toy quanta result is a test too: frequent
-tasks are learned first.
+The Jacobian lens has its own checks (docs/jlens.md); the toy quanta result is a test too.
 
 ## Not yet
 
 - Padding and attention masks: traces take token ids of equal length.
-- Episode replay (eval and RL episodes as examples), the concept lens, a second backend, a planner.
+- The Modal backend (GPU workers for sweeps), training primitives in the loop, a planner.
 - The agent side (`populations`) is frozen behind its extra; it predates this design and keeps its own
   `Method` interface until the agent questions return.

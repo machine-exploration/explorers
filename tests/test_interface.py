@@ -1,4 +1,4 @@
-"""E1 and E2: streams, read / write / trace, and studies, on tiny random models built locally.
+"""E1 and E2: streams, read / write / trace, and experiments, on tiny random models built locally.
 
 Every check here is exact by construction, so it holds for any weights:
 - a read equals what the model computes at that site;
@@ -172,7 +172,7 @@ def test_gradients_through_a_frozen_model():
     assert torch.all(y.grad[:, 3:] == 0)
 
 
-# --- E2: studies and the five canonical examples -------------------------------------------------
+# --- E2: experiments and the five canonical examples -------------------------------------------------
 
 def test_probe_reads_a_planted_feature():
     """Label = whether the first token is in a set. residual[0] at position 0 is the token's
@@ -181,7 +181,7 @@ def test_probe_reads_a_planted_feature():
     model = neox()
     ids = np.stack([np.r_[t, np.random.default_rng(t).integers(0, V, SEQ - 1)] for t in range(V)] * 2)
     labels = np.isin(ids[:, 0], [1, 4, 5, 9, 12, 15])
-    ds = ex.Study(model, ids).read("residual", layers=[0], position=0).compute()
+    ds = ex.Experiment(model, ids).read("residual", layers=[0], position=0).compute()
     X = ds.residual.sel(model=model.key, layer=0).values
     probe = Logistic(l2=1e-3).fit(X, labels)
     assert ((probe.score(X) > 0) == labels).mean() == 1.0
@@ -198,8 +198,8 @@ def test_steering_toward_a_token():
     def logit_t(ctx):
         return ctx.logits[-1][:, t]
 
-    base = ex.Study(model, ids).measure(logit_t).compute()
-    steered = ex.Study(model, ids).write("residual", L, position=-1, fn=ex.ops.Add(u, 50.0)).measure(logit_t).compute()
+    base = ex.Experiment(model, ids).measure(logit_t).compute()
+    steered = ex.Experiment(model, ids).write("residual", L, position=-1, fn=ex.ops.Add(u, 50.0)).measure(logit_t).compute()
     assert (steered.logit_t.values > base.logit_t.values).all()
 
 
@@ -215,7 +215,7 @@ def test_activation_patching_exact_by_construction():
     model = neox()
     clean, corrupt = pairs()
     metric = ex.measures.logit_diff(correct=3, wrong=5)
-    ds = ex.Study(model, corrupt).patch(source=clean, stream="residual", metric=metric).compute()
+    ds = ex.Experiment(model, corrupt).patch(source=clean, stream="residual", metric=metric).compute()
     p = ds.patch.sel(model=model.key)
     np.testing.assert_allclose(p.sel(layer=0, position=0), 1.0, atol=1e-4)       # the only difference
     np.testing.assert_allclose(p.sel(layer=0).isel(position=slice(1, None)), 0.0, atol=1e-4)
@@ -228,7 +228,7 @@ def test_attribution_patching():
     norm removed, the metric is linear in residual[L] at the last position."""
     model, (clean, corrupt) = neox(), pairs()
     metric = ex.measures.logit_diff(correct=3, wrong=5)
-    attr = ex.Study(model, corrupt).patch(source=clean, metric=metric, method="attribution").compute()
+    attr = ex.Experiment(model, corrupt).patch(source=clean, metric=metric, method="attribution").compute()
     a = attr.patch.sel(model=model.key)
     np.testing.assert_allclose(a.sel(layer=0).isel(position=slice(1, None)), 0.0, atol=1e-6)   # no difference
     np.testing.assert_allclose(a.sel(layer=L).isel(position=slice(0, -1)), 0.0, atol=1e-6)    # no path
@@ -236,7 +236,7 @@ def test_attribution_patching():
     linear = neox()
     linear.module.gpt_neox.final_layer_norm = torch.nn.Identity()
     linear.norm = linear.module.gpt_neox.final_layer_norm
-    lin = ex.Study(linear, corrupt).patch(source=clean, metric=metric, method="attribution",
+    lin = ex.Experiment(linear, corrupt).patch(source=clean, metric=metric, method="attribution",
                                           layers=[L], positions=[SEQ - 1]).compute()
     np.testing.assert_allclose(lin.patch.sel(layer=L, position=SEQ - 1).values, 1.0, atol=1e-4)
 
@@ -245,7 +245,7 @@ def test_sae_read():
     model, ids = neox(), tokens()
     rng = np.random.default_rng(0)
     sae = ex.sae.SAE(rng.normal(size=(D, 64)), rng.normal(size=64), rng.normal(size=(64, D)), rng.normal(size=D))
-    ds = ex.Study(model, ids).read("residual", layers=[2], position=-1).compute()
+    ds = ex.Experiment(model, ids).read("residual", layers=[2], position=-1).compute()
     x = ds.residual.sel(model=model.key, layer=2).values
     f = sae.encode(x)
     np.testing.assert_allclose(f, np.maximum((x - sae.b_dec) @ sae.W_enc + sae.b_enc, 0), rtol=1e-5)
@@ -254,12 +254,12 @@ def test_sae_read():
     np.testing.assert_allclose(identity.decode(identity.encode(np.abs(x))), np.abs(x), rtol=1e-6)
 
 
-def test_study_over_checkpoints_of_a_run():
+def test_experiment_over_checkpoints_of_a_run():
     from explorers import toy
 
     task = toy.MultitaskLookup(n_tasks=4, n_symbols=4)
     run = toy.train(task, steps=20, every=10)
-    ds = ex.Study(run, task.examples()).read("residual", layers="*", position=-1).compute()
+    ds = ex.Experiment(run, task.examples()).read("residual", layers="*", position=-1).compute()
     assert list(ds.step.values) == [0, 10, 20]
     assert ds.residual.dims == ("step", "example", "layer", "d")
     assert not np.allclose(ds.residual.sel(step=0), ds.residual.sel(step=20))
