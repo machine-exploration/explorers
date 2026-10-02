@@ -1,8 +1,8 @@
 # explorers
 
-> **The instrument for a science of deep learning:** read a model's internals and change them, across every checkpoint of a run, with every result reproducible. Next: train, read and intervene in the same loop.
+> **The open lab for the science of deep learning:** train models, read and change their internals, and run experiments at any scale without thinking about infrastructure. Today it reads and changes models across every checkpoint of a run; training in the same loop is next.
 
-`explorers` is the open-source instrument of [Machine Exploration](https://github.com/machine-exploration/public), which is building a science of deep learning: the laws by which training creates the computation inside a model, joining learning mechanics (the dynamics of training) with mechanistic interpretability (what training produces). The experiments live in [mechanics](https://github.com/machine-exploration/mechanics); they climb a ladder from small models pretrained on designed data to Pythia, fine-tuning and reinforcement learning. The vision is in the [org README](https://github.com/machine-exploration/public#readme), the plan in the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
+`explorers` is the open-source lab of [Machine Exploration](https://github.com/machine-exploration/public), which is building a science of deep learning: the laws by which training creates the computation inside a model, joining learning mechanics (the dynamics of training) with mechanistic interpretability (what training produces). The experiments live in [mechanics](https://github.com/machine-exploration/mechanics); they climb a ladder from small models pretrained on designed data to Pythia, fine-tuning and reinforcement learning. The vision is in the [org README](https://github.com/machine-exploration/public#readme), the plan in the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
 
 **Status: pre-alpha.** Nothing is released yet. The API will change.
 
@@ -58,6 +58,7 @@ R = onset_law.run(on=ex.Modal())                                   # 30 runs in 
 - **Primitives:** `model`, `forward_backward(reads=, do=)`, `optim_step`, `sample`, `stream` (one model's activations fed to another training loop, nothing stored), `save`/`load`, and `@experiment` over a grid of sizes, seeds and checkpoints.
 - **Environments** in Prime Intellect's format (data in a recorded order plus a rubric), read through an adapter so the core does not import verifiers.
 - **Backends:** Local for tests, Modal first. Small models ship their whole loop to the backend; large ones take one call per primitive on a resident model.
+- **Fast iteration:** activations cached once when an experiment reuses them, sweeps in one line, warm GPUs while you iterate, only changed grid points recomputed, results streamed back while runs go, a smoke mode before every full run, resume for long jobs.
 - **Rules that carry over:** the same experiment gives the same result on every backend within a stated tolerance; every result reproduces from config, seed, data order and code version; cost comes back with every run.
 
 The first experiment it serves is [`glp-activation`](https://github.com/machine-exploration/mechanics/tree/main/experiments/glp-activation) in mechanics, a generative model of activations fitted across training; the plan is O1 in the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
