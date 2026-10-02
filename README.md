@@ -60,7 +60,7 @@ R = onset_law.run(on=ex.Modal())                                   # 30 runs in 
 - **Backends:** Local for tests, Modal first. Small models ship their whole loop to the backend; large ones take one call per primitive on a resident model.
 - **Rules that carry over:** the same experiment gives the same result on every backend within a stated tolerance; every result reproduces from config, seed, data order and code version; cost comes back with every run.
 
-The first experiment it serves is the onset law in [mechanics](https://github.com/machine-exploration/mechanics); the plan is O1 in the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
+The first experiment it serves is [`glp-activation`](https://github.com/machine-exploration/mechanics/tree/main/experiments/glp-activation) in mechanics, a generative model of activations fitted across training; the plan is O1 in the [roadmap](https://github.com/machine-exploration/public/blob/main/ROADMAP.md).
 
 ## Development
 
