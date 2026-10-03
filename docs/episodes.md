@@ -78,3 +78,29 @@ Done 2026-09-30 on `Qwen/Qwen3.8-27B` (bf16, one RTX PRO 6000 96 GB), vLLM 0.30.
   `traces: []` and a `TimeoutError`: nothing to replay or label. Bound rollouts by turns and tokens
   instead. And size concurrency to the KV cache: 32 concurrent rollouts of ~12k tokens on a
   366k-token cache kept it ≥95% full, 28 requests waiting, ~400 tok/s shared (2026-09-30 run).
+
+## On a 12 GB card (RTX 4070)
+
+Done 2026-10-03 on an RTX 4070 (12 GB; driver 580.126.09, CUDA 13.0; torch 2.14.0+cu130 sees it,
+bf16 supported), vLLM 0.30.0 in its own venv (torch 2.13.0+cu130), verifiers fork `d284ce23`.
+
+- **Model:** `Qwen/Qwen3.5-4B` (revision `851bf6e`; 4.66B params bf16; renderer `qwen3.5`, in the
+  renderer map, thinking on). Hybrid: 8 of 32 layers are full attention, so the KV cache costs about
+  32 KB per token.
+- **Server:**
+
+  ```bash
+  VLLM_USE_FLASHINFER_SAMPLER=0 vllm serve Qwen/Qwen3.5-4B \
+    --revision 851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a --dtype bfloat16 --language-model-only \
+    --max-model-len 16384 --max-num-seqs 4 --gpu-memory-utilization 0.88 --enforce-eager \
+    --enable-scale-out --enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3 \
+    --port 8000
+  ```
+
+  `--language-model-only` skips the vision tower. `--enforce-eager` spends no memory on CUDA graphs.
+  With ~0.45 GB taken by the desktop, the server uses: weights 7.99 GiB, peak activations 0.34 GiB,
+  KV cache 1.82 GiB (48,720 tokens, about 3 concurrent 16k-token requests), 10.7 GB on the card in
+  total. `/inference/v1/generate` is mounted (it answers 400 to an empty body, not 404).
+- **Not done yet:** episodes and the replay check. `impossible_code` must run contained, and this
+  machine has no container engine. Install podman (`sudo apt install -y podman`) and use the fork's
+  `podman` runtime with the network blocked.
