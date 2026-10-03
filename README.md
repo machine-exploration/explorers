@@ -74,6 +74,8 @@ uv run pytest            # tiny models on a CPU, no downloads; GPU tests are ski
 
 Extras for users: `explorers[torch]` (models and traces), `explorers[populations]` (scenarios), `explorers[verifiers]` (to play scenarios).
 
+Local smoke test on one 12 GB GPU: [`examples/episodes_4070/`](examples/episodes_4070/). It serves Qwen3.5-4B with vLLM (recording token ids), runs three `impossible_code` episodes contained under podman, and replays them with `ex.episodes` to compare log-probabilities with the recorded ones. The commands and results are in [docs/episodes.md](docs/episodes.md).
+
 ## Rules for scenarios
 
 - **Contained:** scenarios that push agents to hack run with no network, no shared cache and no path between episodes.

@@ -1,0 +1,32 @@
+# Local smoke test (docs/episodes.md, "On a 12 GB card"): the 3 built-in impossible_code samples, one agent,
+# Qwen3.5-4B on a local vLLM server started with --enable-scale-out, so token ids are recorded.
+# Contained: podman, network framework-only (allow = []). Nothing is uploaded (push = false).
+#
+#   VLLM_API_KEY=local uv run vf-eval impossible-code @ impossible_code.toml -o runs   # from the verifiers fork
+model = "Qwen/Qwen3.5-4B"
+num_rollouts = 1
+max_concurrent = 2
+push = false
+
+[client]
+type = "train"
+base_url = "http://localhost:8000/v1"
+api_key_var = "VLLM_API_KEY"
+
+[client.renderer]
+name = "qwen3.5"
+
+[sampling]
+temperature = 1.0
+max_tokens = 4096
+
+[env.taskset]
+id = "impossible-code"
+
+[env.agent]
+max_turns = 12
+max_total_tokens = 15000
+
+[env.agent.runtime]
+type = "podman"
+allow = []

@@ -101,6 +101,17 @@ bf16 supported), vLLM 0.30.0 in its own venv (torch 2.13.0+cu130), verifiers for
   With ~0.45 GB taken by the desktop, the server uses: weights 7.99 GiB, peak activations 0.34 GiB,
   KV cache 1.82 GiB (48,720 tokens, about 3 concurrent 16k-token requests), 10.7 GB on the card in
   total. `/inference/v1/generate` is mounted (it answers 400 to an empty body, not 404).
-- **Not done yet:** episodes and the replay check. `impossible_code` must run contained, and this
-  machine has no container engine. Install podman (`sudo apt install -y podman`) and use the fork's
-  `podman` runtime with the network blocked.
+- **Episodes:** the 3 built-in `impossible_code` samples, one agent, temperature 1, contained under
+  podman with the network framework-only (`allow = []`; the default `["*"]` is unrestricted).
+  Config: [`examples/episodes_4070/impossible_code.toml`](../examples/episodes_4070/impossible_code.toml),
+  run from the verifiers fork as `VLLM_API_KEY=local uv run vf-eval impossible-code @ <toml> -o runs`.
+  Set `push = false`: vf-eval otherwise tries to upload the run to the Prime platform. 2 min 17 s; no
+  hacks (`passed`, `tests_modified`, `passes_original` all 0); 6,898 sampled tokens, all with token ids and logprobs.
+- **Check:** [`examples/episodes_4070/replay_check.py`](../examples/episodes_4070/replay_check.py)
+  (`ex.open` bf16, `episodes.replay`, `serve(..., {"token_loss"})`): |replayed − recorded| logprob
+  median 0.0001, mean 0.011, p99 0.12, max 0.24, about the same in each episode (max 0.23, 0.23, 0.24).
+  Same profile as the 27B run above: the tokens are aligned, and the tail is bf16 kernel differences.
+- **Replay does not fit on the 12 GB card:** `serve` builds an fp32 full-vocabulary log-softmax
+  per branch (4,315 positions × 248k vocab ≈ 4.3 GB, twice) next to ~9.9 GB of weights: CUDA OOM.
+  On the CPU the same code path took 14 min (reference linear-attention kernels; peak RAM 24 GB).
+  Smallest fix: compute `token_loss` as the sampled logit minus `logsumexp`, in chunks of positions.
