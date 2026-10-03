@@ -96,5 +96,5 @@ The Jacobian lens has its own checks (docs/jlens.md); the toy quanta result is a
 
 - Padding and attention masks: traces take token ids of equal length.
 - The Modal runtime (GPU workers), training primitives in the loop, a planner.
-- The agent side (`populations`) is frozen behind its extra; it predates this design and keeps its own
-  `Method` interface until the agent questions return.
+- The agent side (`populations`, behind its extra) predates this design and keeps its own `Method`
+  interface; it serves Collective Adaptive Stress Testing (multi-agent testbeds) now.
